@@ -1,0 +1,232 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import type { ChangeEvent, ReactNode } from "react";
+import { BookOpen, Brain, CheckCircle2, Library, PenLine, Upload, X, XCircle } from "lucide-react";
+import { Button, Card, Input, Progress, Textarea } from "@/components/ui";
+import { useAppState } from "@/lib/storage";
+import type { AppState, ReadingExercise, Word } from "@/lib/types";
+import { addExp, cn, today, uid } from "@/lib/utils";
+
+type Mode = "memory" | "wrong" | "spelling" | "reading";
+type ImportWord = Partial<Word> & {
+  id?: string;
+  word: string;
+  phonetic?: string;
+  pos?: string;
+  rawMeaning?: string;
+  phrase?: string;
+  sentence?: string;
+  note?: string;
+  tags?: string[];
+  sourceOrder?: number;
+};
+type StudyWord = Word & {
+  phonetic?: string;
+  pos?: string;
+  rawMeaning?: string;
+  phrase?: string;
+  sentence?: string;
+  note?: string;
+  tags?: string[];
+  sourceOrder?: number;
+};
+type NoteIntent = { word: StudyWord; type: "模糊" | "忘记" } | null;
+type SpellingModal = { word: StudyWord } | null;
+type WordPopup = { word: string; meaning: string; pos: string } | null;
+
+const dictionary: Record<string, { meaning: string; pos: string }> = {
+  progress: { meaning: "进步；进展", pos: "n./v." },
+  sustain: { meaning: "维持；支撑", pos: "v." },
+  fluctuate: { meaning: "波动；起伏", pos: "v." },
+  inevitable: { meaning: "不可避免的", pos: "adj." },
+  motivation: { meaning: "动机；动力", pos: "n." },
+  routine: { meaning: "常规；惯例", pos: "n." },
+  momentum: { meaning: "势头；动力", pos: "n." },
+  confidence: { meaning: "信心", pos: "n." },
+  reflection: { meaning: "反思", pos: "n." },
+  discipline: { meaning: "自律；纪律", pos: "n." },
+};
+
+function normalizeWord(word: Word | ImportWord, index = 0): StudyWord {
+  const now = new Date().toISOString();
+  return {
+    id: word.id || uid("word"),
+    word: word.word,
+    meaning: word.meaning || word.rawMeaning || "待补充释义",
+    phonetic: word.phonetic || "",
+    pos: word.pos || "n./v.",
+    rawMeaning: word.rawMeaning || word.meaning || "",
+    phrase: word.phrase || word.example || "",
+    sentence: word.sentence || word.example || "",
+    example: word.example || word.sentence || "",
+    date: word.date || today(),
+    familiarity: Number(word.familiarity || 0),
+    wrongCount: Number(word.wrongCount || 0),
+    correctCount: Number(word.correctCount || 0),
+    note: word.note || "",
+    hidden: word.hidden || false,
+    tags: word.tags || ["CET-6"],
+    sourceOrder: word.sourceOrder || index + 1,
+    createdAt: word.createdAt || now,
+    updatedAt: word.updatedAt || now,
+  } as StudyWord;
+}
+
+function createReading(words: StudyWord[]): ReadingExercise {
+  const createdAt = new Date().toISOString();
+  return {
+    id: uid("reading"),
+    date: today(),
+    title: "Sustainable Growth in Daily Learning",
+    wordsUsed: words.slice(0, 8).map((word) => word.word),
+    passage: "In modern learning, progress rarely depends on one dramatic decision. It is usually built through small actions that students can sustain every day. Motivation may fluctuate when exams, projects, and personal pressure arrive together, but fluctuation is not failure. A learner who protects a simple routine can keep momentum even on low-energy days. By recording tasks, mistakes, focus time, and reflection, students turn invisible effort into visible evidence. This evidence supports discipline and confidence, because every completed action proves that growth is still happening.",
+    questions: [
+      { id: uid("q"), question: "What is the main idea of the passage?", options: ["Progress comes from sustainable daily actions.", "Learning depends only on talent.", "Mistakes should be ignored.", "Technology replaces discipline."], answer: "Progress comes from sustainable daily actions.", explanation: "文章强调稳定的小行动比单次巨大决定更能带来成长。" },
+      { id: uid("q"), question: "What does fluctuate mean in the passage?", options: ["To disappear", "To change up and down", "To become perfect", "To record evidence"], answer: "To change up and down", explanation: "fluctuate 在文中指动力随压力出现上下波动。" },
+      { id: uid("q"), question: "Why is recording useful?", options: ["It makes effort visible.", "It removes all pressure.", "It avoids every mistake.", "It ends all reflection."], answer: "It makes effort visible.", explanation: "记录任务、错误和专注时间，可以把隐形努力变成可见证据。" },
+    ],
+    chineseExplanation: "这篇文章说明：学习成长并不依赖一次性的爆发，而依赖可持续的小行动。即使动力波动，只要保留简单稳定的学习循环，进步仍然会发生。",
+    passageExplanation: "文章结构为：先提出观点，再说明动力波动并非失败，最后强调记录、反馈和反思能让成长可见。关键词包括 sustain、fluctuate、momentum、reflection、discipline。",
+    createdAt,
+  };
+}
+
+export function AdvancedEnglishModule({ embedded = false }: { embedded?: boolean }) {
+  const { state, setState, ready } = useAppState();
+  const words = useMemo(() => state.words.map((word, index) => normalizeWord(word, index)), [state.words]);
+  const [mode, setMode] = useState<Mode>("memory");
+  const [memoryIndex, setMemoryIndex] = useState(0);
+  const [noteIntent, setNoteIntent] = useState<NoteIntent>(null);
+  const [note, setNote] = useState("");
+  const [spellingIndex, setSpellingIndex] = useState(0);
+  const [spellingAnswer, setSpellingAnswer] = useState("");
+  const [spellingStatus, setSpellingStatus] = useState("");
+  const [spellingModal, setSpellingModal] = useState<SpellingModal>(null);
+  const [reading, setReading] = useState<ReadingExercise | null>(state.readings[0] ?? null);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [submitted, setSubmitted] = useState(false);
+  const [wordPopup, setWordPopup] = useState<WordPopup>(null);
+  const [importMessage, setImportMessage] = useState("");
+
+  const visibleWords = words.filter((word) => !word.hidden);
+  const currentMemory = visibleWords[memoryIndex % Math.max(visibleWords.length, 1)];
+  const currentSpelling = visibleWords[spellingIndex % Math.max(visibleWords.length, 1)];
+  const wrongWords = visibleWords.filter((word) => word.wrongCount > 0);
+  const masteredRate = visibleWords.length ? Math.round((visibleWords.filter((word) => word.familiarity >= 3).length / visibleWords.length) * 100) : 0;
+
+  function saveWords(nextWords: StudyWord[], patch: Partial<AppState> = {}) {
+    setState((current) => ({ ...current, ...patch, words: nextWords as Word[] }));
+  }
+
+  function patchWord(id: string, patch: Partial<StudyWord>, extra?: Partial<AppState>) {
+    const next = words.map((word) => word.id === id ? { ...word, ...patch, updatedAt: new Date().toISOString() } : word);
+    saveWords(next, extra);
+  }
+
+  async function importJson(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const raw = await file.text();
+    const parsed = JSON.parse(raw) as ImportWord[];
+    if (!Array.isArray(parsed)) throw new Error("词库 JSON 必须是数组");
+    const existing = new Map(words.map((word) => [word.word.toLowerCase(), word]));
+    const merged = [...words];
+    parsed.forEach((item, index) => {
+      if (!item.word) return;
+      const incoming = normalizeWord(item, index);
+      const old = existing.get(incoming.word.toLowerCase());
+      if (old) {
+        const next = { ...old, ...incoming, wrongCount: Math.max(old.wrongCount, incoming.wrongCount), note: old.note || incoming.note || "", familiarity: Math.max(old.familiarity, incoming.familiarity), updatedAt: new Date().toISOString() };
+        const pos = merged.findIndex((word) => word.id === old.id);
+        merged[pos] = next;
+      } else {
+        existing.set(incoming.word.toLowerCase(), incoming);
+        merged.push(incoming);
+      }
+    });
+    saveWords(merged);
+    setImportMessage(`已导入 ${parsed.length} 条，当前词库 ${merged.length} 条`);
+    event.target.value = "";
+  }
+
+  function rememberWord() {
+    if (!currentMemory) return;
+    patchWord(currentMemory.id, { familiarity: currentMemory.familiarity + 1 }, { attributes: addExp(state.attributes, "english", 1) });
+    setMemoryIndex((index) => (index + 1) % Math.max(visibleWords.length, 1));
+  }
+
+  function openNote(type: "模糊" | "忘记") {
+    if (!currentMemory) return;
+    setNoteIntent({ word: currentMemory, type });
+    setNote(currentMemory.note || "");
+  }
+
+  function saveWrongNote() {
+    if (!noteIntent) return;
+    patchWord(noteIntent.word.id, { wrongCount: noteIntent.word.wrongCount + 1, familiarity: Math.max(0, noteIntent.word.familiarity - 1), note });
+    setNoteIntent(null);
+    setNote("");
+    setMemoryIndex((index) => (index + 1) % Math.max(visibleWords.length, 1));
+  }
+
+  function checkSpelling() {
+    if (!currentSpelling) return;
+    const correct = spellingAnswer.trim().toLowerCase() === currentSpelling.word.toLowerCase();
+    if (correct) {
+      patchWord(currentSpelling.id, { familiarity: currentSpelling.familiarity + 1, correctCount: currentSpelling.correctCount + 1 }, { attributes: addExp(state.attributes, "english", 2) });
+      setSpellingStatus("正确");
+      window.setTimeout(() => { setSpellingAnswer(""); setSpellingStatus(""); setSpellingIndex((index) => (index + 1) % Math.max(visibleWords.length, 1)); }, 650);
+      return;
+    }
+    patchWord(currentSpelling.id, { wrongCount: currentSpelling.wrongCount + 1, note: currentSpelling.note || "拼写试炼错误，需再次复习。" });
+    setSpellingModal({ word: currentSpelling });
+    setSpellingStatus("请重试，正确后才会进入下一题");
+  }
+
+  function generateReading() {
+    const next = createReading(visibleWords);
+    setReading(next);
+    setAnswers({});
+    setSubmitted(false);
+    setState((current) => ({ ...current, readings: [next, ...current.readings] }));
+  }
+
+  function submitReading() {
+    if (!reading) return;
+    setSubmitted(true);
+    setState((current) => ({ ...current, readings: current.readings.map((item) => item.id === reading.id ? { ...item, userAnswers: answers, completed: true } : item), attributes: addExp(current.attributes, "english", 15) }));
+  }
+
+  function lookupWord(raw: string) {
+    const clean = raw.toLowerCase().replace(/[^a-z'-]/g, "");
+    if (!clean || !submitted) return;
+    const known = words.find((word) => word.word.toLowerCase() === clean);
+    const fallback = dictionary[clean];
+    setWordPopup({ word: clean, meaning: known?.meaning || fallback?.meaning || "暂无释义，可先加入错词本后补充。", pos: known?.pos || fallback?.pos || "unknown" });
+  }
+
+  function addPopupWordToWrongBook() {
+    if (!wordPopup) return;
+    const existing = words.find((word) => word.word.toLowerCase() === wordPopup.word.toLowerCase());
+    if (existing) patchWord(existing.id, { wrongCount: existing.wrongCount + 1, note: existing.note || "阅读点击加入错词本。" });
+    else {
+      const now = new Date().toISOString();
+      saveWords([{ id: uid("word"), word: wordPopup.word, meaning: wordPopup.meaning, pos: wordPopup.pos, phrase: wordPopup.word, sentence: "Added from reading mode.", date: today(), familiarity: 0, wrongCount: 1, correctCount: 0, note: "阅读点击加入错词本。", createdAt: now, updatedAt: now } as StudyWord, ...words]);
+    }
+    setWordPopup(null);
+  }
+
+  const shell = embedded ? "space-y-6" : "min-h-screen bg-mist px-4 py-6 text-white lg:px-8";
+  return <div className={cn(shell, !ready && "opacity-60")}><div className={embedded ? "space-y-6" : "mx-auto max-w-[1440px] space-y-6"}><Hero words={visibleWords.length} wrong={wrongWords.length} mastered={masteredRate} importJson={importJson} importMessage={importMessage} /><Tabs mode={mode} setMode={setMode} />{mode === "memory" && <MemoryMode word={currentMemory} rememberWord={rememberWord} openNote={openNote} />}{mode === "wrong" && <WrongBook words={wrongWords} review={(word) => { setMode("memory"); setMemoryIndex(Math.max(0, visibleWords.findIndex((item) => item.id === word.id))); }} remove={(word) => patchWord(word.id, { hidden: true })} master={(word) => patchWord(word.id, { familiarity: 5, hidden: true })} />}{mode === "spelling" && <Spelling word={currentSpelling} answer={spellingAnswer} setAnswer={setSpellingAnswer} status={spellingStatus} check={checkSpelling} />}{mode === "reading" && <Reading reading={reading} answers={answers} setAnswers={setAnswers} submitted={submitted} generateReading={generateReading} submitReading={submitReading} lookupWord={lookupWord} />}</div>{noteIntent && <Modal title={`${noteIntent.type}：写下记忆线索`} onClose={() => setNoteIntent(null)}><p className="text-sm text-white/60">{noteIntent.word.word} 会进入错词本，请保存一条复习备注。</p><Textarea className="mt-4" value={note} onChange={(event) => setNote(event.target.value)} /><Button className="mt-4" onClick={saveWrongNote}>保存笔记</Button></Modal>}{spellingModal && <Modal title="拼写错误" onClose={() => setSpellingModal(null)}><p className="text-sm text-white/60">正确答案：</p><p className="mt-2 text-3xl font-semibold text-white">{spellingModal.word.word}</p><p className="mt-4 text-sm text-[#F59E0B]">必须重试直到正确，才会进入下一题。</p><Button className="mt-5" onClick={() => setSpellingModal(null)}>继续重试</Button></Modal>}{wordPopup && <Modal title={wordPopup.word} onClose={() => setWordPopup(null)}><p className="text-sm text-white/60">{wordPopup.pos}</p><p className="mt-2 text-xl text-white">{wordPopup.meaning}</p><p className="mt-5 text-sm text-white/60">是否加入错词本？</p><div className="mt-4 flex gap-3"><Button onClick={addPopupWordToWrongBook}>加入错词本</Button><Button variant="secondary" onClick={() => setWordPopup(null)}>不加入</Button></div></Modal>}</div>;
+}
+
+function Hero({ words, wrong, mastered, importJson, importMessage }: { words: number; wrong: number; mastered: number; importJson: (event: ChangeEvent<HTMLInputElement>) => void; importMessage: string }) { return <header className="rounded-[28px] border border-white/[0.08] bg-[linear-gradient(135deg,rgba(0,47,167,0.92),rgba(11,15,26,0.94)_62%,rgba(0,200,150,0.12))] p-8 shadow-glow backdrop-blur-2xl"><p className="text-sm uppercase tracking-[0.35em] text-white/55">Wenyuan Pavilion</p><div className="mt-4 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]"><div><h1 className="text-5xl font-semibold tracking-tight">文渊阁</h1><p className="mt-4 max-w-2xl text-sm leading-7 text-white/65">CET-6 训练系统：导入词库、记忆判断、错词沉淀、拼写重试、阅读反馈与词义点击。</p><label className="mt-6 inline-flex h-11 cursor-pointer items-center gap-2 rounded-xl border border-white/[0.1] bg-white/[0.06] px-4 text-sm text-white/80 transition hover:border-klein/50 hover:bg-klein/20"><Upload size={16} />导入词库<input className="hidden" type="file" accept="application/json,.json" onChange={importJson} /></label>{importMessage ? <p className="mt-3 text-sm text-[#00C896]">{importMessage}</p> : null}</div><div className="grid grid-cols-3 gap-3"><MetricPill label="词条" value={`${words}`} /><MetricPill label="错词" value={`${wrong}`} /><MetricPill label="掌握" value={`${mastered}%`} /></div></div></header>; }
+function Tabs({ mode, setMode }: { mode: Mode; setMode: (mode: Mode) => void }) { const items: Array<[Mode, string, ReactNode]> = [["memory", "记忆模式", <Brain key="i" size={16} />], ["wrong", "错词本", <Library key="i" size={16} />], ["spelling", "拼写试炼", <PenLine key="i" size={16} />], ["reading", "阅读秘境", <BookOpen key="i" size={16} />]]; return <nav className="flex flex-wrap gap-2">{items.map(([key, label, icon]) => <Button key={key} variant={mode === key ? "primary" : "secondary"} onClick={() => setMode(key)}>{icon}{label}</Button>)}</nav>; }
+function MemoryMode({ word, rememberWord, openNote }: { word?: StudyWord; rememberWord: () => void; openNote: (type: "模糊" | "忘记") => void }) { if (!word) return <Card className="p-8"><Empty text="暂无词条，请先导入 CET-6 词库。" /></Card>; return <Card className="grid gap-8 p-8 lg:grid-cols-[1fr_0.8fr]"><div><p className="text-sm text-white/55">只显示英文，先判断记忆状态</p><h2 className="mt-8 text-7xl font-semibold tracking-tight text-white">{word.word}</h2><div className="mt-8 flex flex-wrap gap-3"><Button onClick={rememberWord}><CheckCircle2 size={16} />记得</Button><Button variant="secondary" onClick={() => openNote("模糊")}>模糊</Button><Button variant="danger" onClick={() => openNote("忘记")}><XCircle size={16} />忘记</Button></div></div><div className="rounded-glass border border-white/[0.08] bg-white/[0.04] p-6"><p className="text-sm text-white/55">熟悉度</p><Progress className="mt-4" value={(word.familiarity / 5) * 100} /><p className="mt-4 text-sm text-white/50">模糊或忘记时会要求填写笔记，并加入错词本。</p></div></Card>; }
+function WrongBook({ words, review, remove, master }: { words: StudyWord[]; review: (word: StudyWord) => void; remove: (word: StudyWord) => void; master: (word: StudyWord) => void }) { return <Card className="p-6"><h2 className="text-2xl font-semibold text-white">错词本</h2><div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{words.length ? words.map((word) => <div key={word.id} className="rounded-glass border border-white/[0.08] bg-white/[0.045] p-5"><div className="flex items-start justify-between gap-4"><div><h3 className="text-2xl font-semibold text-white">{word.word}</h3><p className="mt-1 text-sm text-white/55">{word.phonetic || "无音标"} · {word.pos}</p></div><span className="rounded-full bg-[#FF4D4F]/15 px-3 py-1 text-xs text-[#FF8A8B]">错 {word.wrongCount}</span></div><p className="mt-4 text-white">{word.meaning}</p><p className="mt-3 text-sm text-white/55">笔记：{word.note || "暂无笔记"}</p><div className="mt-5 flex flex-wrap gap-2"><Button variant="secondary" onClick={() => review(word)}>复习</Button><Button onClick={() => master(word)}>标记已掌握</Button><Button variant="danger" onClick={() => remove(word)}>移除</Button></div></div>) : <Empty text="暂无错词。模糊、忘记或拼写错误的词会自动进入这里。" />}</div></Card>; }
+function Spelling({ word, answer, setAnswer, status, check }: { word?: StudyWord; answer: string; setAnswer: (value: string) => void; status: string; check: () => void }) { if (!word) return <Card className="p-8"><Empty text="暂无词条，无法开始拼写试炼。" /></Card>; return <Card className="p-8"><p className="text-sm text-white/55">根据中文释义输入英文单词</p><div className="mt-5 rounded-glass border border-klein/30 bg-klein/15 p-7 text-3xl font-semibold text-white">{word.meaning}</div><Input className="mt-6" value={answer} onChange={(event) => setAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") check(); }} placeholder="请输入英文单词" /><div className="mt-5 flex items-center gap-3"><Button onClick={check}>提交</Button>{status ? <span className={cn("text-sm", status === "正确" ? "text-[#00C896]" : "text-[#F59E0B]")}>{status}</span> : null}</div></Card>; }
+function Reading({ reading, answers, setAnswers, submitted, generateReading, submitReading, lookupWord }: { reading: ReadingExercise | null; answers: Record<string, string>; setAnswers: (answers: Record<string, string>) => void; submitted: boolean; generateReading: () => void; submitReading: () => void; lookupWord: (word: string) => void }) { if (!reading) return <Card className="p-8"><h2 className="text-2xl font-semibold text-white">阅读秘境</h2><p className="mt-3 text-white/55">生成阅读后先做题，提交前不会显示答案。</p><Button className="mt-6" onClick={generateReading}>生成阅读训练</Button></Card>; return <Card className="p-8"><div className="flex items-center justify-between gap-4"><div><h2 className="text-2xl font-semibold text-white">{reading.title}</h2><p className="mt-2 text-sm text-white/55">提交后可点击文章任意单词查看释义。</p></div><Button variant="secondary" onClick={generateReading}>换一篇</Button></div><div className="mt-6 rounded-glass border border-white/[0.08] bg-white/[0.04] p-6 text-sm leading-8 text-white/75">{reading.passage.split(/(\s+)/).map((part, index) => part.trim() ? <button key={index} className={cn("rounded px-1 transition", submitted ? "hover:bg-klein/30 hover:text-white" : "cursor-text")} onClick={() => lookupWord(part)}>{part}</button> : part)}</div><div className="mt-6 space-y-5">{reading.questions.map((question, index) => <div key={question.id} className="rounded-glass border border-white/[0.08] bg-white/[0.04] p-5"><h3 className="font-semibold text-white">{index + 1}. {question.question}</h3><div className="mt-4 grid gap-2">{question.options.map((option) => { const selected = answers[question.id] === option; const correct = submitted && option === question.answer; const wrong = submitted && selected && option !== question.answer; return <button key={option} onClick={() => !submitted && setAnswers({ ...answers, [question.id]: option })} className={cn("rounded-xl border px-4 py-3 text-left text-sm transition", selected ? "border-klein bg-klein/20 text-white" : "border-white/[0.08] bg-white/[0.04] text-white/65", correct && "border-[#00C896] bg-[#00C896]/15 text-white", wrong && "border-[#FF4D4F] bg-[#FF4D4F]/15 text-white")}>{option}</button>; })}</div>{submitted ? <p className={cn("mt-3 text-sm", answers[question.id] === question.answer ? "text-[#00C896]" : "text-[#FF8A8B]")}>{answers[question.id] === question.answer ? "正确" : "错误"} · 正确答案：{question.answer}</p> : null}</div>)}</div>{submitted ? <div className="mt-6 rounded-glass border border-[#00C896]/25 bg-[#00C896]/10 p-5"><h3 className="font-semibold text-white">中文解析</h3><p className="mt-2 text-sm leading-7 text-white/70">{reading.chineseExplanation || "本篇文章围绕可持续学习、反馈和自律展开，强调将努力转化为可见证据。"}</p><h3 className="mt-5 font-semibold text-white">文章讲解</h3><p className="mt-2 text-sm leading-7 text-white/70">{reading.passageExplanation || "请重点关注文章的主旨句、转折关系和关键词复现。"}</p></div> : <Button className="mt-6" onClick={submitReading}>提交</Button>}</Card>; }
+function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) { return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"><div className="w-full max-w-lg rounded-[24px] border border-white/[0.1] bg-[#0B0F1A]/95 p-6 shadow-glow"><div className="flex items-center justify-between"><h3 className="text-xl font-semibold text-white">{title}</h3><button className="rounded-full bg-white/[0.06] p-2 text-white/60 hover:text-white" onClick={onClose}><X size={18} /></button></div><div className="mt-5">{children}</div></div></div>; }
+function MetricPill({ label, value }: { label: string; value: string }) { return <div className="rounded-glass border border-white/[0.08] bg-white/[0.07] p-4"><p className="text-xs text-white/50">{label}</p><p className="mt-2 text-3xl font-semibold text-white">{value}</p></div>; }
+function Empty({ text }: { text: string }) { return <div className="rounded-glass border border-dashed border-white/[0.12] bg-white/[0.035] p-8 text-center text-sm text-white/45">{text}</div>; }

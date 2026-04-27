@@ -1,46 +1,63 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useMemo, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Award, BarChart3, BookOpen, CheckCircle2, Clock, LayoutDashboard, ListChecks, PenLine, Plus, RotateCcw, Trash2 } from "lucide-react";
-import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
+import { Award, BarChart3, BookOpen, CheckCircle2, Clock, Flame, LayoutDashboard, ListChecks, Moon, Plus, RotateCcw, Sparkles, Target, Trash2 } from "lucide-react";
+import { Area, AreaChart, Bar, BarChart, Cell, Pie, PieChart, Radar, RadarChart, PolarAngleAxis, PolarGrid, PolarRadiusAxis, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button, Card, Input, Progress, Select, Textarea } from "@/components/ui";
-import { categories } from "@/lib/data";
+import { achievementSeed, categories } from "@/lib/data";
 import { useAppState } from "@/lib/storage";
-import type { AppState, Category, DailyReview, Priority, Task, TaskRecord, TaskStatus, Word } from "@/lib/types";
-import { cn, percent, today, uid } from "@/lib/utils";
+import type { Achievement, AppState, AttributeKey, Category, DailyReview, FocusMode, FocusSession, Priority, ReadingExercise, Task, TaskStatus, Toast, Word } from "@/lib/types";
+import { addExp, categoryToAttribute, clamp, cn, generateReadingFromWords, percent, readingPromptTemplate, today, uid } from "@/lib/utils";
 
-type Tab = "dashboard" | "tasks" | "records" | "english" | "focus" | "review" | "stats";
+type Tab = "dashboard" | "tasks" | "english" | "focus" | "review" | "stats" | "achievements";
+type EnglishTab = "words" | "spelling" | "wrong" | "reading";
 
-const tabs: Array<{ key: Tab; label: string; icon: LucideIcon }> = [
-  { key: "dashboard", label: "首页", icon: LayoutDashboard },
-  { key: "tasks", label: "今日任务", icon: ListChecks },
-  { key: "records", label: "详细记录", icon: PenLine },
-  { key: "english", label: "六级英语", icon: BookOpen },
-  { key: "focus", label: "专注修炼", icon: Clock },
-  { key: "review", label: "每日复盘", icon: CheckCircle2 },
-  { key: "stats", label: "周月统计", icon: BarChart3 },
+const nav: Array<{ key: Tab; href: string; label: string; icon: LucideIcon }> = [
+  { key: "dashboard", href: "/", label: "今日总览", icon: LayoutDashboard },
+  { key: "tasks", href: "/tasks", label: "今日修炼", icon: ListChecks },
+  { key: "english", href: "/english", label: "六级副本", icon: BookOpen },
+  { key: "focus", href: "/focus", label: "专注修炼", icon: Clock },
+  { key: "review", href: "/review", label: "修炼日志", icon: Moon },
+  { key: "stats", href: "/stats", label: "成长统计", icon: BarChart3 },
+  { key: "achievements", href: "/achievements", label: "成就图鉴", icon: Award },
 ];
-
 const statusList: TaskStatus[] = ["未开始", "进行中", "已完成", "暂停"];
 const priorityList: Priority[] = ["高", "中", "低"];
-const chartColors = ["#002FA7", "#6B7280", "#93C5FD", "#111827", "#60A5FA", "#CBD5E1"];
+const focusModes: Array<{ key: FocusMode; label: string; minutes: number }> = [
+  { key: "focus", label: "25 分钟专注", minutes: 25 },
+  { key: "shortBreak", label: "5 分钟短休息", minutes: 5 },
+  { key: "longBreak", label: "15 分钟长休息", minutes: 15 },
+];
+const chartColors = ["#002FA7", "#16A34A", "#F59E0B", "#111827", "#60A5FA", "#CBD5E1"];
 
-export function HuangdiApp() {
+export function HuangdiApp({ initialTab = "dashboard" }: { initialTab?: Tab }) {
   const { state, setState, ready, reset } = useAppState();
-  const [tab, setTab] = useState<Tab>("dashboard");
+  const [tab, setTab] = useState<Tab>(initialTab);
+  const [toast, setToast] = useState<Toast | null>(null);
   const todayTasks = state.tasks.filter((task) => task.date === today());
-  const completed = todayTasks.filter((task) => task.status === "已完成").length;
+  const completedTasks = todayTasks.filter((task) => task.status === "已完成").length;
   const overall = todayTasks.length ? Math.round(todayTasks.reduce((sum, task) => sum + task.progress, 0) / todayTasks.length) : 0;
-  const studyTasks = todayTasks.filter((task) => ["学习", "英语", "毕业论文"].includes(task.category));
-  const workTasks = todayTasks.filter((task) => ["工作", "作品集"].includes(task.category));
-  const studyRate = percent(studyTasks.filter((task) => task.status === "已完成").length, studyTasks.length);
-  const workRate = percent(workTasks.filter((task) => task.status === "已完成").length, workTasks.length);
+  const focusToday = state.focusSessions.filter((session) => session.date === today() && session.completed);
+  const reviewToday = state.reviews.find((review) => review.date === today());
 
+  function notify(message: string, tone: Toast["tone"] = "success") {
+    setToast({ id: uid("toast"), message, tone });
+    window.setTimeout(() => setToast(null), 2200);
+  }
+  function patchState(patch: Partial<AppState>) { setState((current) => refreshAchievements({ ...current, ...patch })); }
+  function gain(category: Category | undefined, minutes: number) {
+    const exp = Math.max(5, Math.round(minutes / 10) * 5);
+    setState((current) => refreshAchievements({ ...current, attributes: addExp(current.attributes, categoryToAttribute(category), exp) }));
+  }
   function updateTask(id: string, patch: Partial<Task>) {
-    setState((current) => ({
-      ...current,
-      tasks: current.tasks.map((task) => (task.id === id ? { ...task, ...patch, updatedAt: new Date().toISOString() } : task)),
-    }));
+    setState((current) => {
+      const before = current.tasks.find((task) => task.id === id);
+      const nextTasks = current.tasks.map((task) => task.id === id ? { ...task, ...patch, updatedAt: new Date().toISOString() } : task);
+      const becameDone = before && before.status !== "已完成" && patch.status === "已完成";
+      const attrs = becameDone ? addExp(current.attributes, categoryToAttribute(before.category), Math.max(5, Math.round(before.estimatedMinutes / 10) * 5)) : current.attributes;
+      return refreshAchievements({ ...current, tasks: nextTasks, attributes: attrs });
+    });
+    if (patch.status === "已完成") notify("任务完成，属性经验已增加");
   }
 
   return (
@@ -48,157 +65,91 @@ export function HuangdiApp() {
       <aside className="fixed left-0 top-0 hidden h-full w-64 border-r border-gray-200 bg-white/85 p-5 backdrop-blur-xl lg:block">
         <p className="text-xs font-semibold uppercase tracking-[0.35em] text-klein">Huangdi</p>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">黄帝养成系统</h1>
-        <p className="mt-2 text-sm leading-6 text-gray-500">个人学习、工作与成长看板。</p>
-        <nav className="mt-8 space-y-1">
-          {tabs.map((item) => (
-            <button key={item.key} onClick={() => setTab(item.key)} className={cn("flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition", tab === item.key ? "bg-klein text-white" : "text-gray-600 hover:bg-gray-100")}>
-              <item.icon size={17} />
-              {item.label}
-            </button>
-          ))}
-        </nav>
-        <Button className="mt-8 w-full" variant="secondary" onClick={reset}>
-          <RotateCcw size={16} />
-          重置演示数据
-        </Button>
+        <p className="mt-2 text-sm leading-6 text-gray-500">不是单纯记录任务，而是看见自己正在变强。</p>
+        <nav className="mt-8 space-y-1">{nav.map((item) => <a key={item.key} href={item.href} onClick={(event) => { event.preventDefault(); setTab(item.key); }} className={cn("flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition", tab === item.key ? "bg-klein text-white" : "text-gray-600 hover:bg-gray-100")}><item.icon size={17} />{item.label}</a>)}</nav>
+        <Button className="mt-8 w-full" variant="secondary" onClick={() => { reset(); notify("已重置演示数据"); }}><RotateCcw size={16} />重置演示数据</Button>
       </aside>
-
       <main className={cn("mx-auto max-w-7xl px-4 py-5 lg:ml-64 lg:px-8", !ready && "opacity-60")}>
-        <MobileTabs tab={tab} setTab={setTab} />
-        {tab === "dashboard" && <Dashboard tasks={todayTasks} completed={completed} overall={overall} studyRate={studyRate} workRate={workRate} setTab={setTab} focusCount={state.focusCount} words={state.words} />}
-        {tab === "tasks" && <Tasks tasks={todayTasks} updateTask={updateTask} setState={setState} />}
-        {tab === "records" && <Records tasks={state.tasks} records={state.records} setState={setState} />}
-        {tab === "english" && <English words={state.words} setState={setState} />}
-        {tab === "focus" && <Focus focusCount={state.focusCount} setState={setState} />}
-        {tab === "review" && <Review review={state.review} setState={setState} />}
-        {tab === "stats" && <Stats tasks={state.tasks} records={state.records} focusCount={state.focusCount} review={state.review} />}
+        <div className="mb-5 rounded-xl border border-gray-200 bg-white/90 p-3 shadow-sm lg:hidden"><h1 className="mb-3 font-semibold">黄帝养成系统</h1><div className="flex gap-2 overflow-x-auto">{nav.map((item) => <button key={item.key} onClick={() => setTab(item.key)} className={cn("shrink-0 rounded-lg px-3 py-2 text-sm", tab === item.key ? "bg-klein text-white" : "bg-gray-100 text-gray-600")}>{item.label}</button>)}</div></div>
+        {toast ? <div className="fixed right-4 top-4 z-50 rounded-xl bg-ink px-4 py-3 text-sm text-white shadow-lift">{toast.message}</div> : null}
+        {tab === "dashboard" && <Dashboard state={state} overall={overall} completedTasks={completedTasks} focusToday={focusToday} reviewDone={Boolean(reviewToday)} setTab={setTab} />}
+        {tab === "tasks" && <Tasks tasks={todayTasks} updateTask={updateTask} setState={setState} notify={notify} />}
+        {tab === "english" && <English state={state} patchState={patchState} notify={notify} />}
+        {tab === "focus" && <Focus state={state} patchState={patchState} gain={gain} notify={notify} />}
+        {tab === "review" && <Review reviews={state.reviews} patchState={patchState} notify={notify} />}
+        {tab === "stats" && <Stats state={state} />}
+        {tab === "achievements" && <Achievements achievements={state.achievements} />}
       </main>
     </div>
   );
 }
 
-function MobileTabs({ tab, setTab }: { tab: Tab; setTab: (tab: Tab) => void }) {
-  return (
-    <div className="mb-5 rounded-xl border border-gray-200 bg-white/90 p-3 shadow-sm lg:hidden">
-      <h1 className="mb-3 font-semibold">黄帝养成系统</h1>
-      <div className="flex gap-2 overflow-x-auto">
-        {tabs.map((item) => (
-          <button key={item.key} onClick={() => setTab(item.key)} className={cn("shrink-0 rounded-lg px-3 py-2 text-sm", tab === item.key ? "bg-klein text-white" : "bg-gray-100 text-gray-600")}>
-            {item.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
+function Dashboard({ state, overall, completedTasks, focusToday, reviewDone, setTab }: { state: AppState; overall: number; completedTasks: number; focusToday: FocusSession[]; reviewDone: boolean; setTab: (tab: Tab) => void }) {
+  const todayTasks = state.tasks.filter((task) => task.date === today());
+  const englishWords = state.words.filter((word) => word.date === today());
+  const mastered = percent(englishWords.filter((word) => word.familiarity >= 3).length, englishWords.length);
+  const weekly = last7().map((date, index) => ({ day: `D${index + 1}`, progress: date === today() ? overall : Math.max(20, overall - (6 - index) * 7), focus: date === today() ? focusToday.reduce((s, x) => s + x.durationMinutes, 0) : Math.max(0, index * 8) }));
+  const categoryData = state.tasks.reduce<Array<{ name: Category; value: number }>>((list, task) => { const found = list.find((item) => item.name === task.category); if (found) found.value += 1; else list.push({ name: task.category, value: 1 }); return list; }, []);
+  const recentAchievement = state.achievements.find((achievement) => achievement.unlocked);
+  const expToday = completedTasks * 20 + focusToday.length * 10 + state.readings.filter((reading) => reading.date === today() && reading.completed).length * 15;
+  const status = overall >= 80 ? "今日状态很好，适合推进一个高价值任务。" : overall >= 40 ? `今日修炼正在推进，还有 ${Math.max(0, todayTasks.length - completedTasks)} 个任务等待完成。` : "今日状态：低能量运行，完成一个最小任务即可。";
+  return <div className="space-y-5"><section className="rounded-2xl bg-klein p-7 text-white shadow-lift"><p className="text-sm text-white/70">{today()}</p><h2 className="mt-3 text-4xl font-semibold tracking-tight">黄帝 Lv. {Math.max(...state.attributes.map((a) => a.level))}</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-white/80">{status}</p><div className="mt-5 grid gap-4 md:grid-cols-3"><Metric title="今日成长值" value={`+${expToday} EXP`} dark /><Metric title="今日总进度" value={`${overall}%`} dark /><Metric title="复盘状态" value={reviewDone ? "已完成" : "待填写"} dark /></div><Progress className="mt-6 bg-white/20 [&>div]:bg-white" value={overall} /></section><div className="grid gap-4 md:grid-cols-5"><Metric title="任务完成率" value={`${percent(completedTasks, todayTasks.length)}%`} /><Metric title="英语掌握率" value={`${mastered}%`} /><Metric title="番茄钟" value={`${focusToday.length} 个`} /><Metric title="专注总时长" value={`${focusToday.reduce((s, x) => s + x.durationMinutes, 0)} 分`} /><Metric title="最近成就" value={recentAchievement?.title ?? "待解锁"} /></div><AttributePanel attributes={state.attributes} /><div className="grid gap-5 xl:grid-cols-2"><ChartCard title="最近 7 天总进度"><AreaChart data={weekly}><XAxis dataKey="day" /><Tooltip /><Area type="monotone" dataKey="progress" stroke="#002FA7" fill="#002FA7" fillOpacity={0.12} /></AreaChart></ChartCard><ChartCard title="最近 7 天专注时长"><BarChart data={weekly}><XAxis dataKey="day" /><YAxis /><Tooltip /><Bar dataKey="focus" fill="#002FA7" radius={[8, 8, 0, 0]} /></BarChart></ChartCard><ChartCard title="任务分类占比"><PieChart><Pie data={categoryData} dataKey="value" nameKey="name" innerRadius={58} outerRadius={88}>{categoryData.map((_, index) => <Cell key={index} fill={chartColors[index % chartColors.length]} />)}</Pie><Tooltip /></PieChart></ChartCard><ChartCard title="属性成长雷达"><RadarChart data={state.attributes.map((a) => ({ name: a.name, value: a.exp + (a.level - 1) * 100 }))}><PolarGrid /><PolarAngleAxis dataKey="name" /><PolarRadiusAxis /><Radar dataKey="value" stroke="#002FA7" fill="#002FA7" fillOpacity={0.18} /></RadarChart></ChartCard></div><Card className="p-5"><div className="mb-4 flex items-center justify-between"><h3 className="text-lg font-semibold">今日重点任务</h3><Button variant="secondary" onClick={() => setTab("review")}>写复盘</Button></div><div className="grid gap-3 md:grid-cols-3">{todayTasks.slice(0, 3).map((task) => <div key={task.id} className={cn("rounded-xl bg-gray-50 p-4 transition hover:-translate-y-0.5 hover:shadow-sm", task.status === "已完成" && "opacity-60")}><div className="flex justify-between gap-3"><b>{task.title}</b><span className="text-sm text-klein">{task.progress}%</span></div><p className="mt-1 text-xs text-gray-500">{task.category} · {task.priority}</p><Progress className="mt-3" value={task.progress} /></div>)}</div></Card></div>;
 }
 
-function Dashboard({ tasks, completed, overall, studyRate, workRate, setTab, focusCount, words }: { tasks: Task[]; completed: number; overall: number; studyRate: number; workRate: number; setTab: (tab: Tab) => void; focusCount: number; words: Word[] }) {
-  const weekly = ["一", "二", "三", "四", "五", "六", "日"].map((day, index) => ({ day, progress: index === 6 ? overall : Math.max(18, overall - (6 - index) * 8) }));
-  const categoryData = categories.map((name) => ({ name, value: tasks.filter((task) => task.category === name).length })).filter((item) => item.value > 0);
-  const attributes = [
-    ["学术力", 35 + tasks.filter((task) => task.category === "毕业论文").reduce((sum, task) => sum + task.progress, 0) / 3],
-    ["英语力", 30 + words.reduce((sum, word) => sum + word.familiarity * 5 + word.correctCount * 2, 0)],
-    ["创作力", 28 + tasks.filter((task) => task.category === "作品集").reduce((sum, task) => sum + task.progress, 0) / 2],
-    ["执行力", 36 + completed * 12 + focusCount * 8],
-    ["表达力", 32 + tasks.filter((task) => task.note).length * 8],
-    ["生活力", 26 + focusCount * 5],
-  ];
-
-  return (
-    <div className="space-y-5">
-      <section className="rounded-xl bg-klein p-7 text-white shadow-lift">
-        <p className="text-sm text-white/70">{today()}</p>
-        <h2 className="mt-3 text-4xl font-semibold tracking-tight">黄帝 Lv. {Math.max(1, Math.floor((overall + focusCount * 8) / 40) + 1)}</h2>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-white/80">今日总进度 {overall}%，完成 {completed}/{tasks.length} 个任务。保持节奏，比爆发更可靠。</p>
-        <Progress className="mt-6 bg-white/20 [&>div]:bg-white" value={overall} />
-      </section>
-
-      <div className="grid gap-4 md:grid-cols-4">
-        <Stat title="今日总进度" value={`${overall}%`} />
-        <Stat title="学习完成率" value={`${studyRate}%`} />
-        <Stat title="工作完成率" value={`${workRate}%`} />
-        <Stat title="专注番茄钟" value={`${focusCount} 个`} />
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-2">
-        <Card className="p-5">
-          <div className="mb-4 flex items-center justify-between"><h3 className="text-lg font-semibold">本周进度趋势</h3><button className="text-sm text-klein" onClick={() => setTab("stats")}>查看统计</button></div>
-          <div className="h-64"><ResponsiveContainer width="100%" height="100%"><AreaChart data={weekly}><XAxis dataKey="day" axisLine={false} tickLine={false} /><Tooltip /><Area type="monotone" dataKey="progress" stroke="#002FA7" fill="#002FA7" fillOpacity={0.12} /></AreaChart></ResponsiveContainer></div>
-        </Card>
-        <Card className="p-5">
-          <h3 className="mb-4 text-lg font-semibold">任务分类占比</h3>
-          <div className="h-64"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={categoryData} dataKey="value" nameKey="name" innerRadius={58} outerRadius={88}>{categoryData.map((_, index) => <Cell key={index} fill={chartColors[index % chartColors.length]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></div>
-        </Card>
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-2">
-        <Card className="p-5">
-          <div className="mb-4 flex items-center justify-between"><h3 className="text-lg font-semibold">今日重点任务</h3><button className="text-sm text-klein" onClick={() => setTab("review")}>写复盘</button></div>
-          <div className="space-y-3">{tasks.slice(0, 4).map((task) => <div key={task.id} className="rounded-lg bg-gray-50 p-4"><div className="flex justify-between text-sm"><span>{task.title}</span><span className="text-klein">{task.progress}%</span></div><Progress className="mt-3" value={task.progress} /></div>)}</div>
-        </Card>
-        <Card className="p-5">
-          <h3 className="mb-4 text-lg font-semibold">六维属性</h3>
-          <div className="space-y-4">{attributes.map(([name, raw]) => { const value = Math.min(100, Math.round(Number(raw))); return <div key={String(name)}><div className="mb-2 flex justify-between text-sm"><span>{name}</span><span>Lv.{Math.floor(value / 20) + 1} · {value} EXP</span></div><Progress value={value} /></div>; })}</div>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-function Stat({ title, value }: { title: string; value: string }) {
-  return <Card className="p-5"><p className="text-sm text-gray-500">{title}</p><p className="mt-2 text-3xl font-semibold text-ink">{value}</p></Card>;
-}
-
-function Tasks({ tasks, updateTask, setState }: { tasks: Task[]; updateTask: (id: string, patch: Partial<Task>) => void; setState: Dispatch<SetStateAction<AppState>> }) {
+function Tasks({ tasks, updateTask, setState, notify }: { tasks: Task[]; updateTask: (id: string, patch: Partial<Task>) => void; setState: Dispatch<SetStateAction<AppState>>; notify: (message: string) => void }) {
   const [draft, setDraft] = useState({ title: "", category: "学习" as Category, priority: "中" as Priority, estimatedMinutes: 45 });
-  function addTask() {
-    if (!draft.title.trim()) return;
-    const now = new Date().toISOString();
-    const task: Task = { id: uid("task"), title: draft.title.trim(), category: draft.category, priority: draft.priority, status: "未开始", estimatedMinutes: draft.estimatedMinutes, actualMinutes: 0, progress: 0, note: "", date: today(), createdAt: now, updatedAt: now };
-    setState((current) => ({ ...current, tasks: [task, ...current.tasks] }));
-    setDraft({ title: "", category: "学习", priority: "中", estimatedMinutes: 45 });
-  }
-  return (
-    <div><Title icon={ListChecks} title="今日任务看板" />
-      <Card className="mb-5 p-4"><div className="grid gap-3 lg:grid-cols-[1fr_140px_120px_130px_auto]"><Input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="任务名称" /><Select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value as Category })}>{categories.map((item) => <option key={item}>{item}</option>)}</Select><Select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as Priority })}>{priorityList.map((item) => <option key={item}>{item}</option>)}</Select><Input type="number" value={draft.estimatedMinutes} onChange={(event) => setDraft({ ...draft, estimatedMinutes: Number(event.target.value) })} /><Button onClick={addTask}><Plus size={16} />新增</Button></div></Card>
-      <div className="grid gap-4 xl:grid-cols-4">{statusList.map((status) => <Card key={status} className="min-h-80 p-4"><h3 className="mb-4 font-semibold">{status}</h3><div className="space-y-3">{tasks.filter((task) => task.status === status).map((task) => <div key={task.id} className="rounded-lg border border-gray-100 bg-gray-50 p-4"><Input className="font-medium" value={task.title} onChange={(event) => updateTask(task.id, { title: event.target.value })} /><div className="mt-3 grid grid-cols-2 gap-2"><Select value={task.category} onChange={(event) => updateTask(task.id, { category: event.target.value as Category })}>{categories.map((item) => <option key={item}>{item}</option>)}</Select><Select value={task.priority} onChange={(event) => updateTask(task.id, { priority: event.target.value as Priority })}>{priorityList.map((item) => <option key={item}>{item}</option>)}</Select><Input type="number" value={task.estimatedMinutes} onChange={(event) => updateTask(task.id, { estimatedMinutes: Number(event.target.value) })} /><Input type="number" value={task.actualMinutes} onChange={(event) => updateTask(task.id, { actualMinutes: Number(event.target.value) })} /></div><Textarea className="mt-3" value={task.note} onChange={(event) => updateTask(task.id, { note: event.target.value })} placeholder="备注" /><div className="mt-3 flex items-center gap-3"><input className="w-full accent-klein" type="range" min={0} max={100} step={5} value={task.progress} onChange={(event) => updateTask(task.id, { progress: Number(event.target.value), status: Number(event.target.value) >= 100 ? "已完成" : task.status })} /><span className="w-10 text-sm text-klein">{task.progress}%</span></div><div className="mt-3 grid grid-cols-2 gap-2">{statusList.map((next) => <Button key={next} variant={next === task.status ? "primary" : "secondary"} onClick={() => updateTask(task.id, { status: next, progress: next === "已完成" ? 100 : task.progress })}>{next}</Button>)}</div><Button className="mt-3 w-full" variant="danger" onClick={() => setState((current) => ({ ...current, tasks: current.tasks.filter((item) => item.id !== task.id) }))}><Trash2 size={16} />删除</Button></div>)}</div></Card>)}</div>
-    </div>
-  );
+  const [category, setCategory] = useState<Category | "全部">("全部");
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const filtered = tasks.filter((task) => category === "全部" || task.category === category).sort((a, b) => priorityList.indexOf(a.priority) - priorityList.indexOf(b.priority));
+  function addTask() { if (!draft.title.trim()) return; const now = new Date().toISOString(); const task: Task = { id: uid("task"), title: draft.title.trim(), category: draft.category, priority: draft.priority, status: "未开始", estimatedMinutes: draft.estimatedMinutes, actualMinutes: 0, progress: 0, note: "", date: today(), createdAt: now, updatedAt: now }; setState((current) => ({ ...current, tasks: [task, ...current.tasks] })); setDraft({ title: "", category: "学习", priority: "中", estimatedMinutes: 45 }); notify("任务已添加"); }
+  function remove(id: string) { if (!window.confirm("确定删除这个任务吗？")) return; setState((current) => ({ ...current, tasks: current.tasks.filter((task) => task.id !== id) })); notify("任务已删除"); }
+  return <div><Title icon={Target} title="今日任务看板" sub="按状态分列，支持编辑、筛选、排序和经验联动" /><Card className="mb-5 p-4"><div className="grid gap-3 lg:grid-cols-[1fr_140px_120px_130px_140px_auto]"><Input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="任务名称" /><Select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value as Category })}>{categories.map((item) => <option key={item}>{item}</option>)}</Select><Select value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value as Priority })}>{priorityList.map((item) => <option key={item}>{item}</option>)}</Select><Input type="number" value={draft.estimatedMinutes} onChange={(e) => setDraft({ ...draft, estimatedMinutes: Number(e.target.value) })} /><Select value={category} onChange={(e) => setCategory(e.target.value as Category | "全部")}><option>全部</option>{categories.map((item) => <option key={item}>{item}</option>)}</Select><Button onClick={addTask}><Plus size={16} />新增</Button></div></Card><div className="grid gap-4 xl:grid-cols-4">{statusList.map((status) => <Card key={status} className="min-h-80 p-4"><div className="mb-4 flex items-center justify-between"><h3 className="font-semibold">{status}</h3><span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-500">{filtered.filter((task) => task.status === status).length}</span></div><div className="space-y-3">{filtered.filter((task) => task.status === status).map((task) => <div key={task.id} className={cn("rounded-xl border border-gray-100 bg-gray-50 p-4 transition hover:-translate-y-0.5 hover:shadow-sm", task.status === "已完成" && "opacity-60")}><button className="w-full text-left" onClick={() => setExpanded(expanded === task.id ? null : task.id)}><div className="flex justify-between gap-3"><b>{task.title}</b><span className="text-sm text-klein">{task.progress}%</span></div><p className="mt-1 text-xs text-gray-500">{task.category} · {task.priority} · 预计 {task.estimatedMinutes} 分</p></button><Progress className="mt-3" value={task.progress} />{expanded === task.id ? <div className="mt-3 grid gap-2"><Input value={task.title} onChange={(e) => updateTask(task.id, { title: e.target.value })} /><Textarea value={task.note} onChange={(e) => updateTask(task.id, { note: e.target.value })} placeholder="备注" /><div className="grid grid-cols-2 gap-2"><Select value={task.category} onChange={(e) => updateTask(task.id, { category: e.target.value as Category })}>{categories.map((item) => <option key={item}>{item}</option>)}</Select><Select value={task.priority} onChange={(e) => updateTask(task.id, { priority: e.target.value as Priority })}>{priorityList.map((item) => <option key={item}>{item}</option>)}</Select><Input type="number" value={task.actualMinutes} onChange={(e) => updateTask(task.id, { actualMinutes: Number(e.target.value) })} /><Input type="number" value={task.estimatedMinutes} onChange={(e) => updateTask(task.id, { estimatedMinutes: Number(e.target.value) })} /></div><input className="accent-klein" type="range" min={0} max={100} step={5} value={task.progress} onChange={(e) => updateTask(task.id, { progress: Number(e.target.value) })} /><div className="grid grid-cols-2 gap-2">{statusList.map((next) => <Button key={next} variant={next === task.status ? "primary" : "secondary"} onClick={() => updateTask(task.id, { status: next, progress: next === "已完成" ? 100 : task.progress })}>{next}</Button>)}</div><Button variant="danger" onClick={() => remove(task.id)}><Trash2 size={16} />删除</Button></div> : null}</div>)}</div></Card>)}</div></div>;
 }
 
-function Records({ tasks, records, setState }: { tasks: Task[]; records: TaskRecord[]; setState: Dispatch<SetStateAction<AppState>> }) {
-  const [draft, setDraft] = useState({ taskId: tasks[0]?.id ?? "", did: "", problem: "", solution: "", next: "", link: "" });
-  function save() { if (!draft.taskId) return; const record: TaskRecord = { id: uid("record"), date: today(), createdAt: new Date().toISOString(), ...draft }; setState((current) => ({ ...current, records: [record, ...current.records] })); setDraft({ ...draft, did: "", problem: "", solution: "", next: "", link: "" }); }
-  return <div><Title icon={PenLine} title="详细记录" /><Card className="mb-5 grid gap-4 p-5"><Select value={draft.taskId} onChange={(event) => setDraft({ ...draft, taskId: event.target.value })}>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</Select><Textarea value={draft.did} onChange={(event) => setDraft({ ...draft, did: event.target.value })} placeholder="今天做了什么" /><Textarea value={draft.problem} onChange={(event) => setDraft({ ...draft, problem: event.target.value })} placeholder="遇到的问题" /><Textarea value={draft.solution} onChange={(event) => setDraft({ ...draft, solution: event.target.value })} placeholder="解决方式" /><Textarea value={draft.next} onChange={(event) => setDraft({ ...draft, next: event.target.value })} placeholder="明天继续做什么" /><Input value={draft.link} onChange={(event) => setDraft({ ...draft, link: event.target.value })} placeholder="相关链接或备注" /><Button className="w-fit" onClick={save}>保存记录</Button></Card><div className="grid gap-4">{records.map((record) => <Card key={record.id} className="p-5"><p className="text-sm text-gray-500">{record.date} · {tasks.find((task) => task.id === record.taskId)?.title ?? "任务"}</p><p className="mt-3 whitespace-pre-wrap text-sm leading-6">{record.did}</p>{record.problem && <p className="mt-3 text-sm text-gray-500">问题：{record.problem}</p>}{record.solution && <p className="mt-2 text-sm text-gray-500">解决：{record.solution}</p>}{record.next && <p className="mt-2 text-sm text-gray-500">下一步：{record.next}</p>}</Card>)}</div></div>;
+function English({ state, patchState, notify }: { state: AppState; patchState: (patch: Partial<AppState>) => void; notify: (message: string) => void }) {
+  const [tab, setTab] = useState<EnglishTab>("words");
+  const [bulk, setBulk] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [quizId, setQuizId] = useState(state.words[0]?.id ?? "");
+  const [reading, setReading] = useState<ReadingExercise | null>(state.readings[0] ?? null);
+  const todayWords = state.words.filter((word) => word.date === today());
+  const current = state.words.find((word) => word.id === quizId) ?? todayWords[0];
+  function addBulk() { const rows = bulk.split("\n").map((row) => row.trim()).filter(Boolean); const now = new Date().toISOString(); const next = rows.map((row) => { const [word, ...rest] = row.split(/\s+/); return { id: uid("word"), word, meaning: rest.join(" ") || "待补充释义", date: today(), familiarity: 0, wrongCount: 0, correctCount: 0, createdAt: now, updatedAt: now }; }); patchState({ words: [...next, ...state.words] }); setBulk(""); notify(`已添加 ${next.length} 个单词`); }
+  function updateWord(id: string, patch: Partial<Word>) { patchState({ words: state.words.map((word) => word.id === id ? { ...word, ...patch, updatedAt: new Date().toISOString() } : word) }); }
+  function check() { if (!current) return; const ok = answer.trim().toLowerCase() === current.word.toLowerCase(); const words = state.words.map((word) => word.id === current.id ? { ...word, familiarity: clamp(word.familiarity + (ok ? 1 : -1), 0, 5), correctCount: word.correctCount + (ok ? 1 : 0), wrongCount: word.wrongCount + (ok ? 0 : 1), updatedAt: new Date().toISOString() } : word); patchState({ words, attributes: ok ? addExp(state.attributes, "english", 2) : state.attributes }); setAnswer(""); notify(ok ? "拼写正确，英语力 +2" : `错误，正确答案是 ${current.word}`); }
+  async function makeReading() { const next = await generateReadingFromWords(todayWords); setReading(next); patchState({ readings: [next, ...state.readings] }); notify("阅读秘境已生成"); }
+  function completeReading() { if (!reading) return; patchState({ readings: state.readings.map((item) => item.id === reading.id ? { ...item, completed: true } : item), attributes: addExp(state.attributes, "english", 15) }); notify("阅读完成，英语力 +15"); }
+  const wrong = state.words.filter((word) => word.wrongCount > 0 && !word.hidden).sort((a, b) => b.wrongCount - a.wrongCount);
+  return <div><Title icon={BookOpen} title="CET-6 英语副本" sub="今日词库、拼写试炼、错词牢笼、阅读秘境" /><div className="mb-5 flex flex-wrap gap-2">{[["words", "今日词库"], ["spelling", "拼写试炼"], ["wrong", "错词牢笼"], ["reading", "阅读秘境"]].map(([key, label]) => <Button key={key} variant={tab === key ? "primary" : "secondary"} onClick={() => setTab(key as EnglishTab)}>{label}</Button>)}</div>{tab === "words" && <Card className="p-5"><div className="grid gap-4 lg:grid-cols-[1fr_280px]"><div><h3 className="text-lg font-semibold">批量粘贴单词</h3><Textarea value={bulk} onChange={(e) => setBulk(e.target.value)} placeholder={'abandon 放弃\nsustain 维持\nfluctuate 波动'} /><Button className="mt-3" onClick={addBulk}>导入词库</Button></div><div className="rounded-xl bg-klein/5 p-4"><p className="text-sm text-gray-500">今日单词数量</p><b className="text-3xl text-klein">{todayWords.length}</b><p className="mt-3 text-sm text-gray-500">今日掌握率 {percent(todayWords.filter((w) => w.familiarity >= 3).length, todayWords.length)}%</p></div></div><div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{state.words.map((word) => <div key={word.id} className="rounded-xl bg-gray-50 p-4"><Input value={word.word} onChange={(e) => updateWord(word.id, { word: e.target.value })} /><Input className="mt-2" value={word.meaning} onChange={(e) => updateWord(word.id, { meaning: e.target.value })} /><div className="mt-3 flex items-center gap-3"><input className="w-full accent-klein" type="range" min={0} max={5} value={word.familiarity} onChange={(e) => updateWord(word.id, { familiarity: Number(e.target.value) })} /><span className="text-xs text-klein">{word.familiarity}/5</span></div><Button className="mt-3" variant="danger" onClick={() => patchState({ words: state.words.filter((item) => item.id !== word.id) })}>删除</Button></div>)}</div></Card>}{tab === "spelling" && <Card className="p-6"><p className="text-sm text-gray-500">根据释义拼写单词</p><div className="mt-3 rounded-xl bg-klein/10 p-5 text-xl font-semibold text-klein">{current?.meaning ?? "请先添加单词"}</div><Input className="mt-4" value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="输入英文单词" /><div className="mt-4 flex gap-3"><Button onClick={check}>提交</Button><Button variant="secondary" onClick={() => setQuizId(todayWords[Math.floor(Math.random() * Math.max(1, todayWords.length))]?.id ?? "")}>随机抽词</Button></div></Card>}{tab === "wrong" && <Card className="p-5"><div className="space-y-3">{wrong.length ? wrong.map((word) => <div key={word.id} className="flex items-center justify-between gap-4 rounded-xl bg-gray-50 p-4"><div><b>{word.word}</b><p className="text-sm text-gray-500">{word.meaning} · 错 {word.wrongCount} 次</p></div><div className="flex gap-2"><Button variant="secondary" onClick={() => { setQuizId(word.id); setTab("spelling"); }}>重新练习</Button><Button onClick={() => updateWord(word.id, { familiarity: 5, hidden: true })}>标记已掌握</Button></div></div>) : <Empty text="暂无错词，完成拼写试炼后会自动记录。" />}</div></Card>}{tab === "reading" && <Card className="p-5"><div className="mb-4 flex items-center justify-between"><div><h3 className="text-lg font-semibold">阅读秘境</h3><p className="text-sm text-gray-500">已保留后续接入大模型的 Prompt 模板。</p></div><Button onClick={makeReading}>生成今日阅读</Button></div><details className="mb-4 rounded-xl bg-gray-50 p-4 text-sm text-gray-500"><summary className="cursor-pointer text-klein">查看未来 API Prompt</summary><pre className="mt-3 whitespace-pre-wrap">{readingPromptTemplate}</pre></details>{reading ? <div><h3 className="text-xl font-semibold">{reading.title}</h3><p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-gray-700">{reading.passage}</p><div className="mt-4 space-y-3">{reading.questions.map((q) => <div key={q.id} className="rounded-xl bg-gray-50 p-4"><b>{q.question}</b><ul className="mt-2 list-inside list-disc text-sm text-gray-600">{q.options.map((option) => <li key={option}>{option}</li>)}</ul><p className="mt-2 text-sm text-klein">答案：{q.answer}。{q.explanation}</p></div>)}</div><Button className="mt-4" onClick={completeReading}>提交阅读完成</Button></div> : <Empty text="点击生成今日阅读，会根据今日词库模拟一篇 CET-6 阅读。" />}</Card>}</div>;
 }
 
-function English({ words, setState }: { words: Word[]; setState: Dispatch<SetStateAction<AppState>> }) {
-  const [word, setWord] = useState(""); const [meaning, setMeaning] = useState(""); const [index, setIndex] = useState(0); const [answer, setAnswer] = useState(""); const [result, setResult] = useState<string | null>(null); const current = words[index % Math.max(words.length, 1)];
-  function addWord() { if (!word.trim()) return; const next: Word = { id: uid("word"), word: word.trim(), meaning: meaning.trim() || "待补充释义", familiarity: 0, wrongCount: 0, correctCount: 0 }; setState((currentState) => ({ ...currentState, words: [next, ...currentState.words] })); setWord(""); setMeaning(""); }
-  function check() { if (!current) return; const ok = answer.trim().toLowerCase() === current.word.toLowerCase(); setResult(ok ? "正确，英语力 +1" : `错误，正确答案是 ${current.word}`); setState((state) => ({ ...state, words: state.words.map((item) => item.id === current.id ? { ...item, familiarity: Math.max(0, Math.min(5, item.familiarity + (ok ? 1 : -1))), correctCount: item.correctCount + (ok ? 1 : 0), wrongCount: item.wrongCount + (ok ? 0 : 1) } : item) })); }
-  return <div><Title icon={BookOpen} title="六级英语模块" /><div className="grid gap-5 xl:grid-cols-2"><Card className="p-5"><h3 className="mb-4 text-lg font-semibold">今日词库</h3><div className="mb-4 grid gap-3 md:grid-cols-[150px_1fr_auto]"><Input value={word} onChange={(event) => setWord(event.target.value)} placeholder="sustain" /><Input value={meaning} onChange={(event) => setMeaning(event.target.value)} placeholder="维持；支撑" /><Button onClick={addWord}>添加</Button></div><div className="space-y-3">{words.map((item) => <div key={item.id} className="rounded-lg bg-gray-50 p-4"><b>{item.word}</b><p className="text-sm text-gray-500">{item.meaning}</p><Progress className="mt-3" value={item.familiarity * 20} /></div>)}</div></Card><Card className="p-5"><h3 className="mb-4 text-lg font-semibold">拼写试炼</h3>{current ? <><div className="rounded-lg bg-klein/10 p-5 text-xl font-semibold text-klein">{current.meaning}</div><Input className="mt-4" value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="输入英文单词" /><div className="mt-4 flex gap-3"><Button onClick={check}>提交</Button><Button variant="secondary" onClick={() => { setIndex(index + 1); setAnswer(""); setResult(null); }}>下一题</Button></div>{result && <p className="mt-4 rounded-lg bg-gray-50 p-4 text-sm">{result}</p>}<h4 className="mt-6 font-semibold">错词记录</h4>{words.filter((item) => item.wrongCount > 0).map((item) => <p key={item.id} className="mt-2 text-sm text-red-600">{item.word} · 错 {item.wrongCount} 次</p>)}</> : <p className="text-sm text-gray-500">请先添加单词。</p>}</Card></div></div>;
+function Focus({ state, patchState, gain, notify }: { state: AppState; patchState: (patch: Partial<AppState>) => void; gain: (category: Category | undefined, minutes: number) => void; notify: (message: string) => void }) {
+  const [mode, setMode] = useState<FocusMode>("focus"); const minutes = focusModes.find((item) => item.key === mode)?.minutes ?? 25; const [seconds, setSeconds] = useState(minutes * 60); const [running, setRunning] = useState(false); const [taskId, setTaskId] = useState(state.tasks.find((task) => task.date === today())?.id ?? ""); const [reflection, setReflection] = useState(""); const [distraction, setDistraction] = useState("");
+  useEffect(() => { setSeconds(minutes * 60); }, [minutes]);
+  useEffect(() => { if (!running) return; const timer = window.setInterval(() => setSeconds((value) => value <= 1 ? 0 : value - 1), 1000); return () => window.clearInterval(timer); }, [running]);
+  useEffect(() => { if (seconds === 0 && running) finish(true); }, [seconds, running]);
+  function finish(completed: boolean) { setRunning(false); const task = state.tasks.find((item) => item.id === taskId); const session: FocusSession = { id: uid("focus"), taskId: task?.id, taskTitle: task?.title, category: task?.category, mode, durationMinutes: minutes, completed, distractionNote: distraction, reflection, date: today(), startedAt: new Date(Date.now() - minutes * 60000).toISOString(), endedAt: new Date().toISOString() }; patchState({ focusSessions: [session, ...state.focusSessions], tasks: task ? state.tasks.map((item) => item.id === task.id ? { ...item, actualMinutes: item.actualMinutes + minutes, updatedAt: new Date().toISOString() } : item) : state.tasks }); if (completed && mode === "focus") gain(task?.category, minutes); setSeconds(minutes * 60); notify(completed ? "本轮专注已记录" : "已保存本轮记录"); }
+  const progress = ((minutes * 60 - seconds) / (minutes * 60)) * 100; const todaySessions = state.focusSessions.filter((session) => session.date === today() && session.completed);
+  return <div><Title icon={Clock} title="专注修炼" sub="番茄钟、休息模式、任务绑定和专注复盘" /><div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]"><Card className="p-6 text-center"><div className="mb-4 flex justify-center gap-2">{focusModes.map((item) => <Button key={item.key} variant={mode === item.key ? "primary" : "secondary"} onClick={() => setMode(item.key)}>{item.label}</Button>)}</div><div className="mx-auto flex h-72 w-72 items-center justify-center rounded-full" style={{ background: `conic-gradient(#002FA7 ${progress * 3.6}deg,#EEF2F7 0deg)` }}><div className="flex h-60 w-60 items-center justify-center rounded-full bg-white text-6xl font-semibold text-klein">{String(Math.floor(seconds / 60)).padStart(2, "0")}:{String(seconds % 60).padStart(2, "0")}</div></div><Select className="mt-5" value={taskId} onChange={(e) => setTaskId(e.target.value)}><option value="">不绑定任务</option>{state.tasks.filter((task) => task.date === today()).map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</Select><div className="mt-5 flex justify-center gap-3"><Button onClick={() => setRunning(!running)}>{running ? "暂停" : "开始"}</Button><Button variant="secondary" onClick={() => setSeconds(minutes * 60)}>重置</Button><Button variant="secondary" onClick={() => finish(true)}>手动完成</Button></div></Card><Card className="p-6"><h3 className="text-lg font-semibold">专注结束复盘</h3><Textarea className="mt-3" value={reflection} onChange={(e) => setReflection(e.target.value)} placeholder="本轮完成了什么？下一轮准备做什么？" /><Textarea className="mt-3" value={distraction} onChange={(e) => setDistraction(e.target.value)} placeholder="有没有分心？分心原因是什么？" /><div className="mt-5 grid gap-4 md:grid-cols-3"><Metric title="今日番茄钟" value={`${todaySessions.filter((s) => s.mode === "focus").length} 个`} /><Metric title="今日专注" value={`${todaySessions.reduce((s, x) => s + x.durationMinutes, 0)} 分`} /><Metric title="累计专注" value={`${state.focusSessions.filter((s) => s.completed).length} 轮`} /></div></Card></div></div>;
 }
 
-function Focus({ focusCount, setState }: { focusCount: number; setState: Dispatch<SetStateAction<AppState>> }) {
-  const [seconds, setSeconds] = useState(25 * 60); const [running, setRunning] = useState(false);
-  useEffect(() => { if (!running) return; const timer = window.setInterval(() => { setSeconds((value) => { if (value <= 1) { setRunning(false); setState((state) => ({ ...state, focusCount: state.focusCount + 1 })); return 25 * 60; } return value - 1; }); }, 1000); return () => window.clearInterval(timer); }, [running, setState]);
-  return <div><Title icon={Clock} title="番茄钟 / 专注修炼" /><Card className="mx-auto max-w-2xl p-8 text-center"><p className="text-sm text-gray-500">闭关模式 · 25 分钟</p><p className="mt-8 text-7xl font-semibold text-klein">{String(Math.floor(seconds / 60)).padStart(2, "0")}:{String(seconds % 60).padStart(2, "0")}</p><div className="mt-8 flex justify-center gap-3"><Button onClick={() => setRunning(!running)}>{running ? "暂停" : "开始"}</Button><Button variant="secondary" onClick={() => { setRunning(false); setSeconds(25 * 60); }}>重置</Button></div><p className="mt-6 text-sm text-gray-500">今日已完成 {focusCount} 个番茄钟，共 {focusCount * 25} 分钟。</p></Card></div>;
+function Review({ reviews, patchState, notify }: { reviews: DailyReview[]; patchState: (patch: Partial<AppState>) => void; notify: (message: string) => void }) {
+  const existing = reviews.find((item) => item.date === today()); const [draft, setDraft] = useState<DailyReview>(existing ?? { id: uid("review"), date: today(), completed: "", unfinished: "", reason: "", mostValuable: "", mood: "", tomorrowTop3: ["", "", ""], energyLevel: 6, todaySentence: "", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+  function save() { const next = { ...draft, updatedAt: new Date().toISOString() }; patchState({ reviews: [next, ...reviews.filter((item) => item.date !== today())] }); notify("今日复盘已保存"); }
+  return <div><Title icon={Moon} title="每日复盘 / 修炼日志" sub="温和、简洁，适合晚上写给自己的记录" /><Card className="grid gap-4 p-6"><Textarea value={draft.completed} onChange={(e) => setDraft({ ...draft, completed: e.target.value })} placeholder="今日完成了什么？" /><Textarea value={draft.unfinished} onChange={(e) => setDraft({ ...draft, unfinished: e.target.value })} placeholder="今日没有完成什么？" /><Textarea value={draft.reason} onChange={(e) => setDraft({ ...draft, reason: e.target.value })} placeholder="原因是什么？" /><Textarea value={draft.mostValuable} onChange={(e) => setDraft({ ...draft, mostValuable: e.target.value })} placeholder="今天最有价值的一件事" /><Textarea value={draft.mood} onChange={(e) => setDraft({ ...draft, mood: e.target.value })} placeholder="今天的情绪状态" /><div><p className="text-sm text-gray-500">今日能量值：{draft.energyLevel}/10</p><input className="w-full accent-klein" type="range" min={1} max={10} value={draft.energyLevel} onChange={(e) => setDraft({ ...draft, energyLevel: Number(e.target.value) })} /></div>{draft.tomorrowTop3.map((item, index) => <Input key={index} value={item} onChange={(e) => { const top3 = [...draft.tomorrowTop3]; top3[index] = e.target.value; setDraft({ ...draft, tomorrowTop3: top3 }); }} placeholder={`明天最重要的第 ${index + 1} 件事`} />)}<Input value={draft.todaySentence} onChange={(e) => setDraft({ ...draft, todaySentence: e.target.value })} placeholder="今日一句话" /><Button className="w-fit" onClick={save}>保存复盘</Button></Card></div>;
 }
 
-function Review({ review, setState }: { review: DailyReview; setState: Dispatch<SetStateAction<AppState>> }) {
-  function patch(next: Partial<DailyReview>) { setState((state) => ({ ...state, review: { ...state.review, ...next } })); }
-  return <div><Title icon={CheckCircle2} title="每日复盘" /><Card className="grid gap-4 p-5"><Textarea value={review.done} onChange={(event) => patch({ done: event.target.value })} placeholder="今日完成了什么" /><Textarea value={review.undone} onChange={(event) => patch({ undone: event.target.value })} placeholder="今日没有完成什么" /><Textarea value={review.reason} onChange={(event) => patch({ reason: event.target.value })} placeholder="原因是什么" /><Textarea value={review.value} onChange={(event) => patch({ value: event.target.value })} placeholder="今天最有价值的一件事" /><Textarea value={review.mood} onChange={(event) => patch({ mood: event.target.value })} placeholder="今天的情绪状态" /><Textarea value={review.tomorrow} onChange={(event) => patch({ tomorrow: event.target.value })} placeholder="明天最重要的三件事" /><Button className="w-fit" onClick={() => patch({ savedAt: new Date().toISOString() })}>保存复盘</Button></Card></div>;
+function Stats({ state }: { state: AppState }) {
+  const completed = state.tasks.filter((task) => task.status === "已完成").length; const avg = state.tasks.length ? Math.round(state.tasks.reduce((sum, task) => sum + task.progress, 0) / state.tasks.length) : 0; const spellingTotal = state.words.reduce((s, w) => s + w.correctCount + w.wrongCount, 0); const spellingCorrect = state.words.reduce((s, w) => s + w.correctCount, 0); const categoryData = categories.map((name) => ({ name, value: state.tasks.filter((task) => task.category === name).length })).filter((item) => item.value); const weekly = last7().map((date, index) => ({ day: `D${index + 1}`, progress: date === today() ? avg : Math.max(10, avg - (6 - index) * 5), focus: state.focusSessions.filter((session) => session.date === date).reduce((sum, session) => sum + session.durationMinutes, 0) }));
+  return <div><Title icon={BarChart3} title="成长统计" sub="任务、英语、专注和属性趋势" /><div className="mb-5 grid gap-4 md:grid-cols-4"><Metric title="本周完成数" value={`${completed}`} /><Metric title="平均完成率" value={`${avg}%`} /><Metric title="英语单词" value={`${state.words.length}`} /><Metric title="拼写正确率" value={`${percent(spellingCorrect, spellingTotal)}%`} /><Metric title="错词数量" value={`${state.words.filter((w) => w.wrongCount > 0).length}`} /><Metric title="专注总时长" value={`${state.focusSessions.reduce((s, x) => s + x.durationMinutes, 0)} 分`} /><Metric title="连续记录天数" value={`${new Set(state.reviews.map((r) => r.date)).size} 天`} /><Metric title="阅读完成" value={`${state.readings.filter((r) => r.completed).length} 篇`} /></div><div className="grid gap-5 xl:grid-cols-2"><ChartCard title="最近 7 天进度趋势"><AreaChart data={weekly}><XAxis dataKey="day" /><Tooltip /><Area dataKey="progress" stroke="#002FA7" fill="#002FA7" fillOpacity={0.12} /></AreaChart></ChartCard><ChartCard title="分类任务占比"><PieChart><Pie data={categoryData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={90}>{categoryData.map((_, i) => <Cell key={i} fill={chartColors[i % chartColors.length]} />)}</Pie><Tooltip /></PieChart></ChartCard><ChartCard title="属性成长趋势"><BarChart data={state.attributes.map((a) => ({ name: a.name, exp: a.level * 100 + a.exp }))}><XAxis dataKey="name" /><YAxis /><Tooltip /><Bar dataKey="exp" fill="#002FA7" radius={[8, 8, 0, 0]} /></BarChart></ChartCard><ChartCard title="本周专注趋势"><BarChart data={weekly}><XAxis dataKey="day" /><YAxis /><Tooltip /><Bar dataKey="focus" fill="#16A34A" radius={[8, 8, 0, 0]} /></BarChart></ChartCard></div></div>;
 }
 
-function Stats({ tasks, records, focusCount, review }: { tasks: Task[]; records: TaskRecord[]; focusCount: number; review: DailyReview }) {
-  const completed = tasks.filter((task) => task.status === "已完成").length; const avg = tasks.length ? Math.round(tasks.reduce((sum, task) => sum + task.progress, 0) / tasks.length) : 0; const categoryData = categories.map((name) => ({ name, value: tasks.filter((task) => task.category === name).length })).filter((item) => item.value); const weekly = ["一", "二", "三", "四", "五", "六", "日"].map((day, index) => ({ day, progress: Math.max(10, avg - (6 - index) * 6) })); const reviewed = Boolean(review.savedAt);
-  return <div><Title icon={BarChart3} title="周 / 月统计" /><div className="mb-5 grid gap-4 md:grid-cols-4"><Stat title="本周完成数" value={`${completed}`} /><Stat title="平均完成率" value={`${avg}%`} /><Stat title="学习总时长" value={`${tasks.filter((task) => ["学习", "英语", "毕业论文"].includes(task.category)).reduce((sum, task) => sum + task.actualMinutes, 0)} 分`} /><Stat title="连续记录天数" value={`${new Set(records.map((record) => record.date)).size} 天`} /></div><div className="grid gap-5 xl:grid-cols-2"><Card className="p-5"><h3 className="mb-4 font-semibold">最近 7 天趋势</h3><div className="h-72"><ResponsiveContainer width="100%" height="100%"><AreaChart data={weekly}><XAxis dataKey="day" axisLine={false} tickLine={false} /><Tooltip /><Area dataKey="progress" stroke="#002FA7" fill="#002FA7" fillOpacity={0.12} /></AreaChart></ResponsiveContainer></div></Card><Card className="p-5"><h3 className="mb-4 font-semibold">分类占比</h3><div className="h-72"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={categoryData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={90}>{categoryData.map((_, index) => <Cell key={index} fill={chartColors[index % chartColors.length]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></div></Card></div><Card className="mt-5 p-5"><h3 className="mb-4 flex items-center gap-2 font-semibold"><Award size={18} className="text-klein" />成就系统雏形</h3><div className="grid gap-3 md:grid-cols-3"><Achievement unlocked={completed > 0} title="完成第一个任务" /><Achievement unlocked={reviewed} title="完成一次复盘" /><Achievement unlocked={focusCount > 0} title="完成一个番茄钟" /></div></Card></div>;
-}
+function Achievements({ achievements }: { achievements: Achievement[] }) { return <div><Title icon={Award} title="成就图鉴" sub="显示已解锁、未解锁、解锁时间和达成条件" /><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{achievements.map((achievement) => <Card key={achievement.id} className={cn("p-5 transition hover:-translate-y-0.5 hover:shadow-sm", achievement.unlocked && "border-klein/30 bg-klein/5")}><div className="flex items-start gap-3"><div className={cn("rounded-xl p-2", achievement.unlocked ? "bg-klein text-white" : "bg-gray-100 text-gray-400")}><Award size={20} /></div><div><h3 className="font-semibold">{achievement.title}</h3><p className="mt-2 text-sm leading-6 text-gray-500">{achievement.description}</p><p className="mt-3 text-xs text-gray-500">{achievement.unlocked ? `已解锁：${achievement.unlockedAt?.slice(0, 10)}` : "未解锁"}</p></div></div></Card>)}</div></div>; }
 
-function Achievement({ unlocked, title }: { unlocked: boolean; title: string }) {
-  return <div className="rounded-lg bg-gray-50 p-4 text-sm"><span className={unlocked ? "text-klein" : "text-gray-400"}>{unlocked ? "已解锁" : "待解锁"}</span> · {title}</div>;
-}
-
-function Title({ icon: Icon, title }: { icon: LucideIcon; title: string }) {
-  return <div className="mb-5 flex items-center gap-2"><Icon size={21} className="text-klein" /><h2 className="text-2xl font-semibold tracking-tight">{title}</h2></div>;
-}
+function AttributePanel({ attributes }: { attributes: AppState["attributes"] }) { return <Card className="p-5"><div className="mb-4 flex items-center gap-2"><Flame size={20} className="text-klein" /><h3 className="text-lg font-semibold">六维属性</h3></div><div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">{attributes.map((attribute) => <div key={attribute.key}><div className="mb-2 flex justify-between text-sm"><b>{attribute.name}</b><span className="text-gray-500">Lv.{attribute.level} · 差 {attribute.nextLevelExp - attribute.exp} EXP</span></div><Progress value={(attribute.exp / attribute.nextLevelExp) * 100} /><p className="mt-1 text-xs text-gray-400">当前 {attribute.exp}/{attribute.nextLevelExp} EXP</p></div>)}</div></Card>; }
+function ChartCard({ title, children }: { title: string; children: React.ReactNode }) { return <Card className="p-5"><h3 className="mb-4 text-lg font-semibold">{title}</h3><div className="h-72"><ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer></div></Card>; }
+function Metric({ title, value, dark = false }: { title: string; value: string; dark?: boolean }) { return <Card className={cn("p-5", dark && "border-white/20 bg-white/10 text-white")}><p className={cn("text-sm", dark ? "text-white/70" : "text-gray-500")}>{title}</p><p className="mt-2 text-2xl font-semibold">{value}</p></Card>; }
+function Title({ icon: Icon, title, sub }: { icon: LucideIcon; title: string; sub?: string }) { return <div className="mb-5"><div className="flex items-center gap-2"><Icon size={22} className="text-klein" /><h2 className="text-2xl font-semibold tracking-tight">{title}</h2></div>{sub ? <p className="mt-2 text-sm text-gray-500">{sub}</p> : null}</div>; }
+function Empty({ text }: { text: string }) { return <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center text-sm text-gray-500">{text}</div>; }
+function last7() { return Array.from({ length: 7 }, (_, index) => { const d = new Date(); d.setDate(d.getDate() - (6 - index)); return d.toISOString().slice(0, 10); }); }
+function refreshAchievements(state: AppState): AppState { const todayFocus = state.focusSessions.filter((s) => s.date === today() && s.completed && s.mode === "focus").length; const completedCreative = state.tasks.filter((t) => t.status === "已完成" && t.category === "作品集").length; const readingsDone = state.readings.filter((r) => r.completed).length; const spellingCount = state.words.reduce((sum, w) => sum + w.correctCount + w.wrongCount, 0); const unlock = (achievement: Achievement) => { const conditions: Record<string, boolean> = { streak: new Set([...state.reviews.map((r) => r.date), ...state.focusSessions.map((s) => s.date)]).size >= 3, review_streak: state.reviews.length >= 7, word_count: state.words.length >= 100, spelling_count: spellingCount >= 50, reading_count: readingsDone >= 5, focus_day: todayFocus >= 4, focus_total: state.focusSessions.filter((s) => s.completed && s.mode === "focus").length >= 30, paper_streak: state.tasks.filter((t) => t.category === "毕业论文" && t.progress > 0).length >= 5, creative_count: completedCreative >= 10, progress_streak: state.tasks.length > 0 && state.tasks.reduce((sum, t) => sum + t.progress, 0) / state.tasks.length >= 80 }; const shouldUnlock = conditions[achievement.conditionType] ?? achievement.unlocked; return shouldUnlock && !achievement.unlocked ? { ...achievement, unlocked: true, unlockedAt: new Date().toISOString() } : { ...achievement, unlocked: achievement.unlocked || shouldUnlock }; }; return { ...state, achievements: (state.achievements.length ? state.achievements : achievementSeed).map(unlock) }; }

@@ -1,7 +1,13 @@
 "use client";
 
 import { HuangdiApp } from "@/components/HuangdiApp";
+import { EnglishNavRedirect } from "@/components/EnglishNavRedirect";
 
 export default function TasksPage() {
-  return <HuangdiApp initialTab="tasks" />;
+  return (
+    <>
+      <EnglishNavRedirect />
+      <HuangdiApp initialTab="tasks" />
+    </>
+  );
 }

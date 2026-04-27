@@ -76,7 +76,7 @@ export function loadState(): AppState {
 }
 
 export function saveState(state: AppState) {
-  write(KEY, state);
+  if (typeof window !== "undefined") localStorage.removeItem(KEY);
   saveTasks(state.tasks);
   saveWords(state.words);
   saveReviews(state.reviews);

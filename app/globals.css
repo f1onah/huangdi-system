@@ -3,8 +3,9 @@
 @tailwind utilities;
 
 :root {
-  background: #f7f8fa;
-  color: #111827;
+  background: #0b0f1a;
+  color: #ffffff;
+  color-scheme: dark;
 }
 
 * {
@@ -18,13 +19,28 @@ html {
 body {
   min-height: 100vh;
   margin: 0;
+  overflow-x: hidden;
   background:
-    linear-gradient(135deg, rgba(0, 47, 167, 0.08), transparent 34%),
-    linear-gradient(225deg, rgba(17, 24, 39, 0.05), transparent 30%),
-    #f7f8fa;
+    radial-gradient(circle at 18% 10%, rgba(0, 47, 167, 0.38), transparent 32rem),
+    radial-gradient(circle at 78% 6%, rgba(0, 200, 150, 0.16), transparent 28rem),
+    linear-gradient(135deg, #0b0f1a 0%, #0d1220 48%, #060914 100%);
+  color: #ffffff;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+body::before {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,0.78), transparent 86%);
 }
 
 button,
@@ -36,4 +52,111 @@ select {
 
 button {
   cursor: pointer;
+}
+
+::selection {
+  background: rgba(0, 47, 167, 0.75);
+  color: #fff;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255,255,255,0.04);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.16);
+  border-radius: 999px;
+}
+
+/* Dark dashboard visual override for legacy light Tailwind utility classes. */
+.bg-mist,
+.bg-white,
+.bg-white\/85,
+.bg-white\/90,
+.bg-gray-50,
+.bg-gray-100 {
+  background-color: rgba(255,255,255,0.05) !important;
+}
+
+.bg-klein {
+  background:
+    linear-gradient(135deg, rgba(0,47,167,0.96), rgba(12,25,54,0.92) 58%, rgba(0,200,150,0.12)) !important;
+}
+
+.border-gray-100,
+.border-gray-200,
+.border-white\/70 {
+  border-color: rgba(255,255,255,0.08) !important;
+}
+
+.text-ink,
+.text-gray-800,
+.text-gray-700,
+.text-gray-600 {
+  color: #ffffff !important;
+}
+
+.text-gray-500,
+.text-gray-400 {
+  color: rgba(255,255,255,0.6) !important;
+}
+
+.text-klein {
+  color: #7aa2ff !important;
+}
+
+.shadow-sm,
+.shadow-lift {
+  box-shadow: 0 24px 80px rgba(0,0,0,0.28) !important;
+}
+
+.accent-klein {
+  accent-color: #002fa7;
+}
+
+pre,
+details,
+.rounded-xl,
+.rounded-2xl {
+  transition: transform 300ms ease, border-color 300ms ease, box-shadow 300ms ease, background-color 300ms ease;
+}
+
+section.rounded-xl:hover,
+section.rounded-2xl:hover {
+  border-color: rgba(0,47,167,0.45) !important;
+}
+
+.recharts-cartesian-grid line {
+  stroke: rgba(255,255,255,0.06);
+}
+
+.recharts-text,
+.recharts-label {
+  fill: rgba(255,255,255,0.58);
+}
+
+.recharts-default-tooltip {
+  border: 1px solid rgba(255,255,255,0.1) !important;
+  border-radius: 14px !important;
+  background: rgba(11,15,26,0.92) !important;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.34) !important;
+  color: #fff !important;
+  backdrop-filter: blur(20px);
+}
+
+.recharts-tooltip-label,
+.recharts-tooltip-item {
+  color: #fff !important;
+}
+
+.recharts-sector,
+.recharts-rectangle,
+.recharts-area-area,
+.recharts-area-curve {
+  filter: drop-shadow(0 0 12px rgba(0,47,167,0.32));
 }

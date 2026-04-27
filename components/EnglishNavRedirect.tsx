@@ -10,15 +10,17 @@ export function EnglishNavRedirect() {
 
       const link = target.closest("a");
       const button = target.closest("button");
-      const isEnglishLink = link?.getAttribute("href") === "/english";
-      const isEnglishButton = button?.textContent?.includes("文渊阁");
+      const href = link?.getAttribute("href") || "";
+      const text = button?.textContent || link?.textContent || "";
+      const isEnglishLink = href === "/english" || href === "/english/" || href.endsWith("/english/");
+      const isEnglishButton = text.includes("文渊阁") || text.includes("文澜阁");
       if (!isEnglishLink && !isEnglishButton) return;
 
       event.preventDefault();
       event.stopPropagation();
 
       const prefix = window.location.pathname.startsWith("/huangdi-system") ? "/huangdi-system" : "";
-      window.location.assign(`${prefix}/english/`);
+      window.location.assign(`${window.location.origin}${prefix}/english/`);
     }
 
     document.addEventListener("click", openAdvancedEnglish, true);

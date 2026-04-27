@@ -32,9 +32,23 @@ export function EnglishNavRedirect() {
     return () => document.removeEventListener("click", handleNavigation, true);
   }, []);
 
+  useEffect(() => {
+    if (!active) return undefined;
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, [active]);
+
   if (!active) return null;
   return (
-    <main className="fixed inset-0 z-40 overflow-auto bg-mist px-4 py-6 lg:left-72 lg:px-8">
+    <main className="fixed inset-0 z-40 min-h-screen overflow-auto bg-[#0B0F1A] px-4 py-6 lg:left-72 lg:px-8">
       <div className="mx-auto max-w-[1440px]">
         <AdvancedEnglishModule embedded />
       </div>

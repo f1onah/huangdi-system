@@ -3,5 +3,5 @@
 import { HuangdiApp } from "@/components/HuangdiApp";
 
 export default function Home() {
-  return <HuangdiApp />;
+  return <HuangdiApp initialTab="dashboard" />;
 }

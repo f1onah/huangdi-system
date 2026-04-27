@@ -1,6 +1,8 @@
 export type Category = "学习" | "工作" | "毕业论文" | "作品集" | "英语" | "生活";
 export type Priority = "高" | "中" | "低";
 export type TaskStatus = "未开始" | "进行中" | "已完成" | "暂停";
+export type AttributeKey = "academic" | "english" | "creative" | "execution" | "expression" | "life";
+export type FocusMode = "focus" | "shortBreak" | "longBreak";
 
 export type Task = {
   id: string;
@@ -17,41 +19,99 @@ export type Task = {
   updatedAt: string;
 };
 
-export type TaskRecord = {
-  id: string;
-  taskId: string;
-  date: string;
-  did: string;
-  problem: string;
-  solution: string;
-  next: string;
-  link: string;
-  createdAt: string;
-};
-
-export type DailyReview = {
-  done: string;
-  undone: string;
-  reason: string;
-  value: string;
-  mood: string;
-  tomorrow: string;
-  savedAt?: string;
-};
-
 export type Word = {
   id: string;
   word: string;
   meaning: string;
+  example?: string;
+  date: string;
   familiarity: number;
   wrongCount: number;
   correctCount: number;
+  hidden?: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ReadingQuestion = {
+  id: string;
+  question: string;
+  options: string[];
+  answer: string;
+  explanation: string;
+};
+
+export type ReadingExercise = {
+  id: string;
+  date: string;
+  title: string;
+  passage: string;
+  wordsUsed: string[];
+  questions: ReadingQuestion[];
+  userAnswers?: Record<string, string>;
+  completed?: boolean;
+  createdAt: string;
+};
+
+export type FocusSession = {
+  id: string;
+  taskId?: string;
+  taskTitle?: string;
+  category?: Category;
+  mode: FocusMode;
+  durationMinutes: number;
+  completed: boolean;
+  distractionNote?: string;
+  reflection?: string;
+  date: string;
+  startedAt: string;
+  endedAt?: string;
+};
+
+export type DailyReview = {
+  id: string;
+  date: string;
+  completed: string;
+  unfinished: string;
+  reason: string;
+  mostValuable: string;
+  mood: string;
+  tomorrowTop3: string[];
+  energyLevel: number;
+  todaySentence: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Attribute = {
+  key: AttributeKey;
+  name: string;
+  level: number;
+  exp: number;
+  nextLevelExp: number;
+};
+
+export type Achievement = {
+  id: string;
+  title: string;
+  description: string;
+  unlocked: boolean;
+  unlockedAt?: string;
+  conditionType: string;
+};
+
+export type Toast = {
+  id: string;
+  message: string;
+  tone?: "success" | "warning" | "error";
 };
 
 export type AppState = {
   tasks: Task[];
-  records: TaskRecord[];
-  review: DailyReview;
   words: Word[];
-  focusCount: number;
+  readings: ReadingExercise[];
+  focusSessions: FocusSession[];
+  reviews: DailyReview[];
+  attributes: Attribute[];
+  achievements: Achievement[];
 };

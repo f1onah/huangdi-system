@@ -1,7 +1,7 @@
 "use client";
 
-import { HuangdiApp } from "@/components/HuangdiApp";
+import { AdvancedEnglishModule } from "@/components/AdvancedEnglishModule";
 
 export default function EnglishPage() {
-  return <HuangdiApp initialTab="english" />;
+  return <AdvancedEnglishModule />;
 }

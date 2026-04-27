@@ -23,11 +23,19 @@ export type Word = {
   id: string;
   word: string;
   meaning: string;
+  phonetic?: string;
+  pos?: string;
+  rawMeaning?: string;
+  phrase?: string;
+  sentence?: string;
   example?: string;
   date: string;
   familiarity: number;
   wrongCount: number;
   correctCount: number;
+  note?: string;
+  tags?: string[];
+  sourceOrder?: number;
   hidden?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -50,6 +58,8 @@ export type ReadingExercise = {
   questions: ReadingQuestion[];
   userAnswers?: Record<string, string>;
   completed?: boolean;
+  chineseExplanation?: string;
+  passageExplanation?: string;
   createdAt: string;
 };
 

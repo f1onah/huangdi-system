@@ -73,6 +73,18 @@ button {
   border-radius: 999px;
 }
 
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* Dark dashboard visual override for legacy light Tailwind utility classes. */
 .bg-mist,
 .bg-white,

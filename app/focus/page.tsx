@@ -1,7 +1,13 @@
 "use client";
 
 import { HuangdiApp } from "@/components/HuangdiApp";
+import { EnglishNavRedirect } from "@/components/EnglishNavRedirect";
 
 export default function FocusPage() {
-  return <HuangdiApp initialTab="focus" />;
+  return (
+    <>
+      <EnglishNavRedirect />
+      <HuangdiApp initialTab="focus" />
+    </>
+  );
 }

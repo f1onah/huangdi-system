@@ -1,0 +1,54 @@
+{
+  "name": "黄帝养成系统 CET-6 词库导入包",
+  "sourceFile": "大学英语六级词汇完整带音标-可打印-可编辑-正序版.xls",
+  "totalEntries": 5523,
+  "schemaVersion": "1.0.0",
+  "fields": [
+    "id",
+    "word",
+    "phonetic",
+    "pos",
+    "meaning",
+    "rawMeaning",
+    "phrase",
+    "sentence",
+    "familiarity",
+    "wrongCount",
+    "correctCount",
+    "note",
+    "tags",
+    "sourceOrder"
+  ],
+  "chunkSize": 1000,
+  "chunks": [
+    {
+      "file": "cet6_vocab_part_01.json",
+      "count": 1000
+    },
+    {
+      "file": "cet6_vocab_part_02.json",
+      "count": 1000
+    },
+    {
+      "file": "cet6_vocab_part_03.json",
+      "count": 1000
+    },
+    {
+      "file": "cet6_vocab_part_04.json",
+      "count": 1000
+    },
+    {
+      "file": "cet6_vocab_part_05.json",
+      "count": 1000
+    },
+    {
+      "file": "cet6_vocab_part_06.json",
+      "count": 523
+    }
+  ],
+  "notes": [
+    "该导入包基于用户上传的 Excel 词表转换，保留源词表顺序。",
+    "源表含单词、音标、释义；phrase 和 sentence 字段先保留为空，便于后续 AI 补充词组与例句。",
+    "meaning 为清洗后的中文释义；rawMeaning 保留原始释义文本。"
+  ]
+}

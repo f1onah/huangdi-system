@@ -5,14 +5,14 @@ import type { Dispatch, ReactElement, SetStateAction } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Award, BarChart3, BookOpen, Clock, Flame, LayoutDashboard, ListChecks, Moon, Plus, RotateCcw, Target, Trash2 } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { AdvancedEnglishModule } from "@/components/AdvancedEnglishModule";
 import { Button, Card, Input, Progress, Select, Textarea } from "@/components/ui";
 import { achievementSeed, categories } from "@/lib/data";
 import { useAppState } from "@/lib/storage";
-import type { Achievement, AppState, Category, DailyReview, FocusMode, FocusSession, Priority, ReadingExercise, Task, TaskStatus, Toast, Word } from "@/lib/types";
-import { addExp, categoryToAttribute, clamp, cn, generateReadingFromWords, percent, readingPromptTemplate, today, uid } from "@/lib/utils";
+import type { Achievement, AppState, Category, DailyReview, FocusMode, FocusSession, Priority, Task, TaskStatus, Toast } from "@/lib/types";
+import { addExp, categoryToAttribute, cn, percent, today, uid } from "@/lib/utils";
 
 type Tab = "dashboard" | "tasks" | "english" | "focus" | "review" | "stats" | "achievements";
-type EnglishTab = "words" | "spelling" | "wrong" | "reading";
 
 const nav: Array<{ key: Tab; href: string; label: string; sub: string; icon: LucideIcon }> = [
   { key: "dashboard", href: "/", label: "养心殿", sub: "全局态势", icon: LayoutDashboard },
@@ -33,6 +33,11 @@ const focusModes: Array<{ key: FocusMode; label: string; minutes: number }> = [
   { key: "longBreak", label: "15 分钟归息", minutes: 15 },
 ];
 const chartColors = ["#002FA7", "#00C896", "#F59E0B", "#7AA2FF", "#FF4D4F", "#94A3B8"];
+
+function routeHref(href: string) {
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+  return href === "/" ? `${basePath || "/"}` : `${basePath}${href}/`;
+}
 
 export function HuangdiApp({ initialTab = "dashboard" }: { initialTab?: Tab }) {
   const { state, setState, ready, reset } = useAppState();
@@ -75,7 +80,7 @@ export function HuangdiApp({ initialTab = "dashboard" }: { initialTab?: Tab }) {
         </div>
         <nav className="mt-7 space-y-2">
           {nav.map((item) => (
-            <a key={item.key} href={item.href} onClick={(event) => { event.preventDefault(); setTab(item.key); }} className={cn("group flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition-all duration-300", tab === item.key ? "border-klein/60 bg-klein/25 text-white shadow-[0_0_30px_rgba(0,47,167,0.35)]" : "border-transparent text-white/60 hover:border-white/[0.08] hover:bg-white/[0.06] hover:text-white")}>
+            <a key={item.key} href={routeHref(item.href)} onClick={(event) => { event.preventDefault(); setTab(item.key); }} className={cn("group flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition-all duration-300", tab === item.key ? "border-klein/60 bg-klein/25 text-white shadow-[0_0_30px_rgba(0,47,167,0.35)]" : "border-transparent text-white/60 hover:border-white/[0.08] hover:bg-white/[0.06] hover:text-white")}>
               <span className={cn("rounded-xl p-2 transition", tab === item.key ? "bg-klein text-white" : "bg-white/[0.06] text-white/55 group-hover:text-white")}><item.icon size={17} /></span>
               <span><span className="block font-medium">{item.label}</span><span className="block text-xs text-white/40">{item.sub}</span></span>
             </a>
@@ -92,7 +97,7 @@ export function HuangdiApp({ initialTab = "dashboard" }: { initialTab?: Tab }) {
         {toast ? <div className="fixed right-4 top-4 z-50 rounded-2xl border border-white/[0.1] bg-[#0B0F1A]/90 px-5 py-4 text-sm text-white shadow-glow backdrop-blur-2xl">{toast.message}</div> : null}
         {tab === "dashboard" && <Dashboard state={state} overall={overall} completedTasks={completedTasks} focusToday={focusToday} reviewDone={Boolean(reviewToday)} setTab={setTab} />}
         {tab === "tasks" && <Tasks tasks={todayTasks} updateTask={updateTask} setState={setState} notify={notify} />}
-        {tab === "english" && <English state={state} patchState={patchState} notify={notify} />}
+        {tab === "english" && <AdvancedEnglishModule embedded />}
         {tab === "focus" && <Focus state={state} patchState={patchState} notify={notify} />}
         {tab === "review" && <Review reviews={state.reviews} patchState={patchState} notify={notify} />}
         {tab === "stats" && <Stats state={state} />}
@@ -130,26 +135,6 @@ function TaskCard({ task, updateTask, remove }: { task: Task; updateTask: (id: s
   return <div className={cn("rounded-glass border border-white/[0.08] bg-white/[0.045] p-4 transition-all duration-300 hover:-translate-y-1 hover:border-klein/40 hover:shadow-glow", task.status === "已完成" && "opacity-70")}><button className="w-full text-left" onClick={() => setOpen(!open)}><div className="flex justify-between gap-3"><b className="text-white">{task.title}</b><span className="text-sm text-[#00C896]">{task.progress}%</span></div><p className="mt-2 text-xs text-white/50">{task.category} · {task.priority}优先 · {statusCopy[task.status]} · 预计 {task.estimatedMinutes} 分</p></button><Progress className="mt-4" value={task.progress} />{open ? <div className="mt-4 grid gap-3"><Input value={task.title} onChange={(e) => updateTask(task.id, { title: e.target.value })} /><Textarea value={task.note} onChange={(e) => updateTask(task.id, { note: e.target.value })} placeholder="事务备注" /><input className="accent-klein" type="range" min={0} max={100} step={5} value={task.progress} onChange={(e) => updateTask(task.id, { progress: Number(e.target.value) })} /><div className="grid grid-cols-2 gap-2">{statusList.map((next) => <Button key={next} variant={next === task.status ? "primary" : "secondary"} onClick={() => updateTask(task.id, { status: next, progress: next === "已完成" ? 100 : task.progress })}>{statusCopy[next]}</Button>)}</div><Button variant="danger" onClick={() => remove(task.id)}><Trash2 size={16} />作废</Button></div> : null}</div>;
 }
 
-function English({ state, patchState, notify }: { state: AppState; patchState: (patch: Partial<AppState>) => void; notify: (message: string) => void }) {
-  const [tab, setTab] = useState<EnglishTab>("words");
-  const [bulk, setBulk] = useState("");
-  const [answer, setAnswer] = useState("");
-  const [quizId, setQuizId] = useState(state.words[0]?.id ?? "");
-  const [reading, setReading] = useState<ReadingExercise | null>(state.readings[0] ?? null);
-  const todayWords = state.words.filter((word) => word.date === today());
-  const current = state.words.find((word) => word.id === quizId) ?? todayWords[0];
-  function addBulk() { const rows = bulk.split("\n").map((row) => row.trim()).filter(Boolean); const now = new Date().toISOString(); const next: Word[] = rows.map((row) => { const [word, ...rest] = row.split(/\s+/); return { id: uid("word"), word, meaning: rest.join(" ") || "待补充释义", date: today(), familiarity: 0, wrongCount: 0, correctCount: 0, createdAt: now, updatedAt: now }; }); patchState({ words: [...next, ...state.words] }); setBulk(""); notify(`已收录 ${next.length} 个词条`); }
-  function updateWord(id: string, patch: Partial<Word>) { patchState({ words: state.words.map((word) => word.id === id ? { ...word, ...patch, updatedAt: new Date().toISOString() } : word) }); }
-  function check() { if (!current) return; const ok = answer.trim().toLowerCase() === current.word.toLowerCase(); const words = state.words.map((word) => word.id === current.id ? { ...word, familiarity: clamp(word.familiarity + (ok ? 1 : -1), 0, 5), correctCount: word.correctCount + (ok ? 1 : 0), wrongCount: word.wrongCount + (ok ? 0 : 1), updatedAt: new Date().toISOString() } : word); patchState({ words, attributes: ok ? addExp(state.attributes, "english", 2) : state.attributes }); setAnswer(""); notify(ok ? "拼写无误，已掌握" : `拼写有误，建议复习。正确答案：${current.word}`); }
-  async function makeReading() { const next = await generateReadingFromWords(todayWords); setReading(next); patchState({ readings: [next, ...state.readings] }); notify("阅读训练已生成"); }
-  function completeReading() { if (!reading) return; patchState({ readings: state.readings.map((item) => item.id === reading.id ? { ...item, completed: true } : item), attributes: addExp(state.attributes, "english", 15) }); notify("阅读训练完成，英语力 +15"); }
-  const wrong = state.words.filter((word) => word.wrongCount > 0 && !word.hidden).sort((a, b) => b.wrongCount - a.wrongCount);
-  return <div className="space-y-6"><Title icon={BookOpen} title="文渊阁" sub="CET-6 词库、拼写、错词与阅读训练" /><Tabs current={tab} setCurrent={setTab} items={[["words", "今日词库"], ["spelling", "拼写试炼"], ["wrong", "错词记录"], ["reading", "阅读训练"]]} />{tab === "words" && <Card className="p-6"><div className="grid gap-6 lg:grid-cols-[1fr_280px]"><div><h3 className="text-lg font-semibold text-white">收录词条</h3><Textarea value={bulk} onChange={(e) => setBulk(e.target.value)} placeholder={'abandon 放弃\nsustain 维持\nfluctuate 波动'} /><Button className="mt-4" onClick={addBulk}>收录词条</Button></div><Metric title="今日词条" value={`${todayWords.length}`} /></div><WordGrid words={state.words} updateWord={updateWord} removeWord={(id) => patchState({ words: state.words.filter((item) => item.id !== id) })} /></Card>}{tab === "spelling" && <Card className="p-6"><p className="text-sm text-white/60">请输入对应单词</p><div className="mt-4 rounded-glass border border-klein/30 bg-klein/15 p-6 text-2xl font-semibold text-white">{current?.meaning ?? "请先收录词条"}</div><Input className="mt-5" value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="请输入对应单词" /><div className="mt-5 flex gap-3"><Button onClick={check}>校验</Button><Button variant="secondary" onClick={() => setQuizId(todayWords[Math.floor(Math.random() * Math.max(1, todayWords.length))]?.id ?? "")}>继续试炼</Button></div></Card>}{tab === "wrong" && <Card className="p-6"><div className="space-y-3">{wrong.length ? wrong.map((word) => <div key={word.id} className="flex items-center justify-between gap-4 rounded-glass border border-white/[0.08] bg-white/[0.045] p-4"><div><b className="text-white">{word.word}</b><p className="text-sm text-white/55">{word.meaning} · 错 {word.wrongCount} 次</p></div><div className="flex gap-2"><Button variant="secondary" onClick={() => { setQuizId(word.id); setTab("spelling"); }}>继续试炼</Button><Button onClick={() => updateWord(word.id, { familiarity: 5, hidden: true })}>已掌握</Button></div></div>) : <Empty text="暂无错词记录" />}</div></Card>}{tab === "reading" && <Card className="p-6"><div className="mb-5 flex items-center justify-between"><div><h3 className="text-lg font-semibold text-white">阅读训练</h3><p className="text-sm text-white/55">根据今日词库生成一篇 CET-6 阅读练习。</p></div><Button onClick={makeReading}>生成阅读训练</Button></div><details className="mb-5 rounded-glass border border-white/[0.08] bg-white/[0.045] p-4 text-sm text-white/55"><summary className="cursor-pointer text-white">未来 API Prompt</summary><pre className="mt-3 whitespace-pre-wrap">{readingPromptTemplate}</pre></details>{reading ? <div><h3 className="text-xl font-semibold text-white">{reading.title}</h3><p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-white/70">{reading.passage}</p><div className="mt-5 space-y-3">{reading.questions.map((q) => <div key={q.id} className="rounded-glass border border-white/[0.08] bg-white/[0.045] p-4"><b className="text-white">{q.question}</b><ul className="mt-2 list-inside list-disc text-sm text-white/60">{q.options.map((option) => <li key={option}>{option}</li>)}</ul><p className="mt-2 text-sm text-[#00C896]">答案：{q.answer}。{q.explanation}</p></div>)}</div><Button className="mt-5" onClick={completeReading}>完成阅读训练</Button></div> : <Empty text="点击生成阅读训练，开启今日文渊阁练习。" />}</Card>}</div>;
-}
-
-function WordGrid({ words, updateWord, removeWord }: { words: Word[]; updateWord: (id: string, patch: Partial<Word>) => void; removeWord: (id: string) => void }) {
-  return <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{words.map((word) => <div key={word.id} className="rounded-glass border border-white/[0.08] bg-white/[0.045] p-4"><Input value={word.word} onChange={(e) => updateWord(word.id, { word: e.target.value })} /><Input className="mt-3" value={word.meaning} onChange={(e) => updateWord(word.id, { meaning: e.target.value })} /><div className="mt-4 flex items-center gap-3"><input className="w-full accent-klein" type="range" min={0} max={5} value={word.familiarity} onChange={(e) => updateWord(word.id, { familiarity: Number(e.target.value) })} /><span className="text-xs text-white/60">{word.familiarity}/5</span></div><Button className="mt-4" variant="danger" onClick={() => removeWord(word.id)}>移出词库</Button></div>)}</div>;
-}
 
 function Focus({ state, patchState, notify }: { state: AppState; patchState: (patch: Partial<AppState>) => void; notify: (message: string) => void }) {
   const [mode, setMode] = useState<FocusMode>("focus");

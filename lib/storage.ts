@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { achievementSeed, attributeSeed, defaultState } from "@/lib/data";
-import type { Achievement, AppState, Attribute, DailyReview, FocusSession, ReadingExercise, Task, Word } from "@/lib/types";
+import type { Achievement, AppState, Attribute, DailyReview, FocusSession, MealRecord, ReadingExercise, Task, Word } from "@/lib/types";
 
 const KEY = "huangdi-system-mvp-v2";
 const keys = {
@@ -10,6 +10,7 @@ const keys = {
   words: "huangdi.words",
   reviews: "huangdi.reviews",
   focusSessions: "huangdi.focusSessions",
+  meals: "huangdi.meals",
   readings: "huangdi.readings",
   attributes: "huangdi.attributes",
   achievements: "huangdi.achievements",
@@ -40,6 +41,7 @@ function hydrate(value: unknown): AppState {
     reviews: partial.reviews ?? defaultState.reviews,
     readings: partial.readings ?? defaultState.readings,
     focusSessions: partial.focusSessions ?? defaultState.focusSessions,
+    meals: partial.meals ?? defaultState.meals,
     attributes: partial.attributes ?? attributeSeed,
     achievements: partial.achievements ?? achievementSeed,
   };
@@ -53,6 +55,8 @@ export function getReviews() { return read<DailyReview[]>(keys.reviews, defaultS
 export function saveReviews(reviews: DailyReview[]) { write(keys.reviews, reviews); }
 export function getFocusSessions() { return read<FocusSession[]>(keys.focusSessions, defaultState.focusSessions); }
 export function saveFocusSessions(sessions: FocusSession[]) { write(keys.focusSessions, sessions); }
+export function getMeals() { return read<MealRecord[]>(keys.meals, defaultState.meals); }
+export function saveMeals(meals: MealRecord[]) { write(keys.meals, meals); }
 export function getReadings() { return read<ReadingExercise[]>(keys.readings, defaultState.readings); }
 export function saveReadings(readings: ReadingExercise[]) { write(keys.readings, readings); }
 export function getAttributes() { return read<Attribute[]>(keys.attributes, attributeSeed); }
@@ -69,6 +73,7 @@ export function loadState(): AppState {
     words: getWords(),
     reviews: getReviews(),
     focusSessions: getFocusSessions(),
+    meals: getMeals(),
     readings: getReadings(),
     attributes: getAttributes(),
     achievements: getAchievements(),
@@ -81,6 +86,7 @@ export function saveState(state: AppState) {
   saveWords(state.words);
   saveReviews(state.reviews);
   saveFocusSessions(state.focusSessions);
+  saveMeals(state.meals);
   saveReadings(state.readings);
   saveAttributes(state.attributes);
   saveAchievements(state.achievements);

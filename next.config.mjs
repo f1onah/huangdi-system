@@ -2,7 +2,7 @@
 const isGithubActions = process.env.GITHUB_ACTIONS === "true";
 
 const nextConfig = {
-  output: "export",
+  output: isGithubActions ? "export" : undefined,
   trailingSlash: true,
   images: {
     unoptimized: true,

@@ -98,6 +98,16 @@ export type DailyReview = {
   updatedAt: string;
 };
 
+export type MealRecord = {
+  id: string;
+  date: string;
+  food: string;
+  drink: string;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Attribute = {
   key: AttributeKey;
   name: string;
@@ -126,6 +136,7 @@ export type AppState = {
   words: Word[];
   readings: ReadingExercise[];
   focusSessions: FocusSession[];
+  meals: MealRecord[];
   reviews: DailyReview[];
   attributes: Attribute[];
   achievements: Achievement[];

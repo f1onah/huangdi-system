@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
-const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
-const DEFAULT_READING_MODEL = "gpt-4.1-mini";
-const OPENAI_TIMEOUT_MS = 30000;
+const DEEPSEEK_CHAT_ENDPOINT = "https://api.deepseek.com/chat/completions";
+const DEFAULT_READING_MODEL = "deepseek-chat";
+const DEEPSEEK_TIMEOUT_MS = 30000;
 
 type RequestWord = {
   word?: string;
@@ -14,9 +14,8 @@ type RequestWord = {
 
 function extractOutputText(data: unknown) {
   if (typeof data !== "object" || data === null) return "";
-  const maybe = data as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> };
-  if (typeof maybe.output_text === "string") return maybe.output_text;
-  return maybe.output?.flatMap((item) => item.content || []).find((item) => typeof item.text === "string")?.text || "";
+  const maybe = data as { choices?: Array<{ message?: { content?: string | null } }> };
+  return maybe.choices?.find((choice) => typeof choice.message?.content === "string")?.message?.content || "";
 }
 
 async function readJsonSafely(response: Response) {
@@ -30,20 +29,27 @@ async function readJsonSafely(response: Response) {
   }
 }
 
+function normalizeModel(model?: string) {
+  const clean = model?.trim();
+  if (!clean || clean.toLowerCase().startsWith("gpt-")) return DEFAULT_READING_MODEL;
+  return clean;
+}
+
 export async function GET() {
   return NextResponse.json({
     ok: true,
     route: "/api/reading",
-    hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
+    provider: "deepseek",
+    hasDeepSeekKey: Boolean(process.env.DEEPSEEK_API_KEY),
     defaultModel: DEFAULT_READING_MODEL,
-    timeoutSeconds: OPENAI_TIMEOUT_MS / 1000,
+    timeoutSeconds: DEEPSEEK_TIMEOUT_MS / 1000,
   });
 }
 
 export async function POST(request: Request) {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: "Vercel 环境变量 OPENAI_API_KEY 尚未配置。" }, { status: 500 });
+    return NextResponse.json({ error: "Vercel 环境变量 DEEPSEEK_API_KEY 尚未配置。" }, { status: 500 });
   }
 
   try {
@@ -54,9 +60,9 @@ export async function POST(request: Request) {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => controller.abort(), DEEPSEEK_TIMEOUT_MS);
 
-    const response = await fetch(OPENAI_RESPONSES_ENDPOINT, {
+    const response = await fetch(DEEPSEEK_CHAT_ENDPOINT, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -64,11 +70,19 @@ export async function POST(request: Request) {
       },
       signal: controller.signal,
       body: JSON.stringify({
-        model: body.model?.trim() || DEFAULT_READING_MODEL,
-        input: [
+        model: normalizeModel(body.model),
+        messages: [
           {
             role: "system",
-            content: "You generate CET-6 English reading practice. Return only valid JSON matching the schema. Do not reveal answers inside the passage. Explanations must be Chinese.",
+            content: [
+              "You generate CET-6 English reading practice.",
+              "Return only valid JSON. No markdown, no code fences, no extra prose.",
+              "The JSON object must contain title, passage, wordsUsed, questions, chineseExplanation, passageExplanation, and wordGlossary.",
+              "questions must contain exactly 4 items. Each item must contain question, options, answer, and explanation.",
+              "options must contain exactly 4 strings. answer must exactly equal one option string.",
+              "wordGlossary items must contain word, meaning, and pos.",
+              "Do not reveal answers inside the passage. Explanations must be Chinese.",
+            ].join(" "),
           },
           {
             role: "user",
@@ -87,72 +101,27 @@ export async function POST(request: Request) {
             }),
           },
         ],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "cet6_reading_exercise",
-            strict: true,
-            schema: {
-              type: "object",
-              additionalProperties: false,
-              required: ["title", "passage", "wordsUsed", "questions", "chineseExplanation", "passageExplanation", "wordGlossary"],
-              properties: {
-                title: { type: "string" },
-                passage: { type: "string" },
-                wordsUsed: { type: "array", items: { type: "string" } },
-                questions: {
-                  type: "array",
-                  minItems: 4,
-                  maxItems: 4,
-                  items: {
-                    type: "object",
-                    additionalProperties: false,
-                    required: ["question", "options", "answer", "explanation"],
-                    properties: {
-                      question: { type: "string" },
-                      options: { type: "array", minItems: 4, maxItems: 4, items: { type: "string" } },
-                      answer: { type: "string" },
-                      explanation: { type: "string" },
-                    },
-                  },
-                },
-                chineseExplanation: { type: "string" },
-                passageExplanation: { type: "string" },
-                wordGlossary: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    additionalProperties: false,
-                    required: ["word", "meaning", "pos"],
-                    properties: {
-                      word: { type: "string" },
-                      meaning: { type: "string" },
-                      pos: { type: "string" },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
+        response_format: { type: "json_object" },
+        temperature: 0.7,
+        max_tokens: 3500,
       }),
     }).finally(() => clearTimeout(timeoutId));
 
     const data = await readJsonSafely(response);
     if (!response.ok) {
-      return NextResponse.json({ error: "OpenAI 请求失败。", details: data }, { status: response.status });
+      return NextResponse.json({ error: "DeepSeek 请求失败。", details: data }, { status: response.status });
     }
 
     const outputText = extractOutputText(data);
     if (!outputText) {
-      return NextResponse.json({ error: "OpenAI 没有返回阅读内容。" }, { status: 502 });
+      return NextResponse.json({ error: "DeepSeek 没有返回阅读内容。", details: data }, { status: 502 });
     }
 
     return NextResponse.json(JSON.parse(outputText));
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       return NextResponse.json(
-        { error: `OpenAI 请求超过 ${OPENAI_TIMEOUT_MS / 1000} 秒未返回，请稍后重试或换一个更快的模型。` },
+        { error: `DeepSeek 请求超过 ${DEEPSEEK_TIMEOUT_MS / 1000} 秒未返回，请稍后重试。` },
         { status: 504 },
       );
     }

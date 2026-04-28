@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
 const DEFAULT_READING_MODEL = "gpt-4.1-mini";
+const OPENAI_TIMEOUT_MS = 30000;
 
 type RequestWord = {
   word?: string;
@@ -18,6 +19,17 @@ function extractOutputText(data: unknown) {
   return maybe.output?.flatMap((item) => item.content || []).find((item) => typeof item.text === "string")?.text || "";
 }
 
+async function readJsonSafely(response: Response) {
+  const text = await response.text();
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return { raw: text };
+  }
+}
+
 export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -31,12 +43,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "请先导入词库，再生成阅读训练。" }, { status: 400 });
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
+
     const response = await fetch(OPENAI_RESPONSES_ENDPOINT, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
+      signal: controller.signal,
       body: JSON.stringify({
         model: body.model?.trim() || DEFAULT_READING_MODEL,
         input: [
@@ -110,11 +126,11 @@ export async function POST(request: Request) {
           },
         },
       }),
-    });
+    }).finally(() => clearTimeout(timeoutId));
 
-    const data = await response.json() as unknown;
+    const data = await readJsonSafely(response);
     if (!response.ok) {
-      return NextResponse.json({ error: data }, { status: response.status });
+      return NextResponse.json({ error: "OpenAI 请求失败。", details: data }, { status: response.status });
     }
 
     const outputText = extractOutputText(data);
@@ -124,6 +140,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json(JSON.parse(outputText));
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return NextResponse.json(
+        { error: `OpenAI 请求超过 ${OPENAI_TIMEOUT_MS / 1000} 秒未返回，请稍后重试或换一个更快的模型。` },
+        { status: 504 },
+      );
+    }
+
     const message = error instanceof Error ? error.message : "生成阅读训练失败。";
     return NextResponse.json({ error: message }, { status: 500 });
   }

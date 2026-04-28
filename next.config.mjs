@@ -9,6 +9,9 @@ const nextConfig = {
   },
   basePath: isGithubActions ? "/huangdi-system" : undefined,
   assetPrefix: isGithubActions ? "/huangdi-system/" : undefined,
+  env: {
+    NEXT_PUBLIC_BASE_PATH: isGithubActions ? "/huangdi-system" : "",
+  },
 };
 
 export default nextConfig;

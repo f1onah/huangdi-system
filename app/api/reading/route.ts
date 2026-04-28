@@ -56,6 +56,56 @@ function summarizeDeepSeekError(data: unknown) {
   return JSON.stringify(data).slice(0, 800);
 }
 
+function createReadingPayload(words: RequestWord[], model?: string): DeepSeekPayload {
+  return {
+    model: normalizeModel(model),
+    messages: [
+      {
+        role: "system",
+        content: [
+          "You generate CET-6 English reading practice.",
+          "Return only a valid json object. No markdown, no code fences, no extra prose.",
+          "The json object must contain title, passage, wordsUsed, questions, chineseExplanation, passageExplanation, and wordGlossary.",
+          "questions must contain exactly 4 items. Each item must contain question, options, answer, and explanation.",
+          "options must contain exactly 4 strings. answer must exactly equal one option string.",
+          "wordGlossary items must contain word, meaning, and pos.",
+          "Do not reveal answers inside the passage. Explanations must be Chinese.",
+        ].join(" "),
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          task: "Use the given daily vocabulary to create one CET-6 reading exercise and return a json object only.",
+          schemaExample: {
+            title: "string",
+            passage: "string",
+            wordsUsed: ["word"],
+            questions: [
+              { question: "string", options: ["A", "B", "C", "D"], answer: "A", explanation: "中文解析" },
+            ],
+            chineseExplanation: "中文整体解析",
+            passageExplanation: "中文文章讲解",
+            wordGlossary: [{ word: "word", meaning: "中文意思", pos: "词性" }],
+          },
+          requirements: [
+            "Passage length 160-240 English words.",
+            "Naturally include at least 8 of the provided words when possible.",
+            "Create 4 multiple-choice questions with 4 options each.",
+            "The answer must exactly equal one option string.",
+            "Provide a Chinese explanation for each question.",
+            "Provide one overall Chinese explanation and one passage structure explanation.",
+            "Provide a wordGlossary for important words in the passage, including provided vocabulary and common difficult words.",
+          ],
+          words,
+        }),
+      },
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0.7,
+    max_tokens: 2200,
+  };
+}
+
 async function callDeepSeek(apiKey: string, payload: DeepSeekPayload) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), DEEPSEEK_TIMEOUT_MS);
@@ -107,6 +157,43 @@ export async function GET(request: Request) {
     }
   }
 
+  if (url.searchParams.get("test") === "reading") {
+    if (!apiKey) {
+      return NextResponse.json({ ok: false, error: "Vercel 环境变量 DEEPSEEK_API_KEY 尚未配置。" }, { status: 500 });
+    }
+
+    try {
+      const sampleWords: RequestWord[] = [
+        { word: "sustain", meaning: "维持", pos: "v." },
+        { word: "fluctuate", meaning: "波动", pos: "v." },
+        { word: "discipline", meaning: "自律；纪律", pos: "n." },
+        { word: "reflection", meaning: "反思", pos: "n." },
+        { word: "confidence", meaning: "信心", pos: "n." },
+        { word: "momentum", meaning: "势头；动力", pos: "n." },
+        { word: "motivation", meaning: "动机；动力", pos: "n." },
+        { word: "inevitable", meaning: "不可避免的", pos: "adj." },
+        { word: "routine", meaning: "常规；惯例", pos: "n." },
+        { word: "progress", meaning: "进步；进展", pos: "n./v." },
+      ];
+      const response = await callDeepSeek(apiKey, createReadingPayload(sampleWords));
+      const data = await readJsonSafely(response);
+      const outputText = response.ok ? extractOutputText(data) : "";
+
+      return NextResponse.json({
+        ok: response.ok,
+        provider: "deepseek",
+        status: response.status,
+        statusText: response.statusText,
+        message: response.ok ? "DeepSeek 阅读生成测试通过。" : summarizeDeepSeekError(data),
+        outputPreview: outputText.slice(0, 1200),
+        details: response.ok ? undefined : data,
+      }, { status: response.ok ? 200 : response.status });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "DeepSeek 阅读生成测试失败。";
+      return NextResponse.json({ ok: false, provider: "deepseek", error: message }, { status: 500 });
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     route: "/api/reading",
@@ -130,53 +217,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "请先导入词库，再生成阅读训练。" }, { status: 400 });
     }
 
-    const response = await callDeepSeek(apiKey, {
-      model: normalizeModel(body.model),
-      messages: [
-        {
-          role: "system",
-          content: [
-            "You generate CET-6 English reading practice.",
-            "Return only a valid json object. No markdown, no code fences, no extra prose.",
-            "The json object must contain title, passage, wordsUsed, questions, chineseExplanation, passageExplanation, and wordGlossary.",
-            "questions must contain exactly 4 items. Each item must contain question, options, answer, and explanation.",
-            "options must contain exactly 4 strings. answer must exactly equal one option string.",
-            "wordGlossary items must contain word, meaning, and pos.",
-            "Do not reveal answers inside the passage. Explanations must be Chinese.",
-          ].join(" "),
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            task: "Use the given daily vocabulary to create one CET-6 reading exercise and return a json object only.",
-            schemaExample: {
-              title: "string",
-              passage: "string",
-              wordsUsed: ["word"],
-              questions: [
-                { question: "string", options: ["A", "B", "C", "D"], answer: "A", explanation: "中文解析" },
-              ],
-              chineseExplanation: "中文整体解析",
-              passageExplanation: "中文文章讲解",
-              wordGlossary: [{ word: "word", meaning: "中文意思", pos: "词性" }],
-            },
-            requirements: [
-              "Passage length 220-320 English words.",
-              "Naturally include at least 12 of the provided words when possible.",
-              "Create 4 multiple-choice questions with 4 options each.",
-              "The answer must exactly equal one option string.",
-              "Provide a Chinese explanation for each question.",
-              "Provide one overall Chinese explanation and one passage structure explanation.",
-              "Provide a wordGlossary for important words in the passage, including provided vocabulary and common difficult words.",
-            ],
-            words,
-          }),
-        },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.7,
-      max_tokens: 3500,
-    });
+    const response = await callDeepSeek(apiKey, createReadingPayload(words, body.model));
 
     const data = await readJsonSafely(response);
     if (!response.ok) {

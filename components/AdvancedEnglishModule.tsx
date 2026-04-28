@@ -8,7 +8,7 @@ import { useAppState } from "@/lib/storage";
 import type { AppState, ReadingExercise, Word } from "@/lib/types";
 import { addExp, cn, today, uid } from "@/lib/utils";
 
-type Mode = "memory" | "wrong" | "spelling" | "reading";
+type Mode = "memory" | "review" | "all" | "today" | "wrong" | "spelling" | "reading";
 type ImportWord = Partial<Word> & {
   id?: string;
   word?: string;
@@ -32,6 +32,7 @@ type StudyWord = Word & {
   sourceOrder?: number;
 };
 type NoteIntent = { word: StudyWord; type: "模糊" | "忘记" } | null;
+type MemoryResult = { word: StudyWord; type: "记得" | "模糊" | "忘记" } | null;
 type SpellingModal = { word: StudyWord } | null;
 type WordPopup = { word: string; meaning: string; pos: string } | null;
 type ImportResult = { total: number; added: number; updated: number; skipped: number };
@@ -209,7 +210,9 @@ export function AdvancedEnglishModule({ embedded = false }: { embedded?: boolean
 
   const [mode, setMode] = useState<Mode>("memory");
   const [memoryIndex, setMemoryIndex] = useState(0);
+  const [reviewIndex, setReviewIndex] = useState(0);
   const [reviewWordId, setReviewWordId] = useState<string | null>(null);
+  const [memoryResult, setMemoryResult] = useState<MemoryResult>(null);
   const [noteIntent, setNoteIntent] = useState<NoteIntent>(null);
   const [note, setNote] = useState("");
   const [spellingIndex, setSpellingIndex] = useState(0);
@@ -226,10 +229,11 @@ export function AdvancedEnglishModule({ embedded = false }: { embedded?: boolean
   const [readingStatus, setReadingStatus] = useState("");
   const [isGeneratingReading, setIsGeneratingReading] = useState(false);
 
-  const reviewWord = reviewWordId ? visibleWords.find((word) => word.id === reviewWordId) : undefined;
-  const currentMemory = reviewWord || dailyWords[memoryIndex % Math.max(dailyWords.length, 1)];
-  const currentSpelling = dailyWords[spellingIndex % Math.max(dailyWords.length, 1)];
   const wrongWords = visibleWords.filter((word) => word.wrongCount > 0);
+  const reviewWords = wrongWords.filter((word) => word.updatedAt.slice(0, 10) === today());
+  const reviewWord = reviewWordId ? visibleWords.find((word) => word.id === reviewWordId) : undefined;
+  const currentMemory = reviewWord || (mode === "review" ? reviewWords[reviewIndex % Math.max(reviewWords.length, 1)] : dailyWords[memoryIndex % Math.max(dailyWords.length, 1)]);
+  const currentSpelling = dailyWords[spellingIndex % Math.max(dailyWords.length, 1)];
   const masteredRate = visibleWords.length ? Math.round((visibleWords.filter((word) => word.familiarity >= 3).length / visibleWords.length) * 100) : 0;
 
   function saveWords(nextWords: StudyWord[], patch: Partial<AppState> = {}) {
@@ -242,8 +246,10 @@ export function AdvancedEnglishModule({ embedded = false }: { embedded?: boolean
   }
 
   function moveToNextMemoryWord() {
+    setMemoryResult(null);
     setReviewWordId(null);
-    setMemoryIndex((index) => (index + 1) % Math.max(dailyWords.length, 1));
+    if (mode === "review") setReviewIndex((index) => (index + 1) % Math.max(reviewWords.length, 1));
+    else setMemoryIndex((index) => (index + 1) % Math.max(dailyWords.length, 1));
   }
 
   function importWords(imported: ImportWord[]) {
@@ -251,7 +257,9 @@ export function AdvancedEnglishModule({ embedded = false }: { embedded?: boolean
     saveWords(merged);
     setImportMessage(formatImportResult(result, merged.length));
     setReviewWordId(null);
+    setMemoryResult(null);
     setMemoryIndex(0);
+    setReviewIndex(0);
     setSpellingIndex(0);
   }
 
@@ -279,7 +287,7 @@ export function AdvancedEnglishModule({ embedded = false }: { embedded?: boolean
   function rememberWord() {
     if (!currentMemory) return;
     patchWord(currentMemory.id, { familiarity: currentMemory.familiarity + 1 }, { attributes: addExp(state.attributes, "english", 1) });
-    moveToNextMemoryWord();
+    setMemoryResult({ word: currentMemory, type: "记得" });
   }
 
   function openNote(type: "模糊" | "忘记") {
@@ -291,9 +299,9 @@ export function AdvancedEnglishModule({ embedded = false }: { embedded?: boolean
   function saveWrongNote() {
     if (!noteIntent) return;
     patchWord(noteIntent.word.id, { wrongCount: noteIntent.word.wrongCount + 1, familiarity: Math.max(0, noteIntent.word.familiarity - 1), note });
+    setMemoryResult({ word: noteIntent.word, type: noteIntent.type });
     setNoteIntent(null);
     setNote("");
-    moveToNextMemoryWord();
   }
 
   function checkSpelling() {
@@ -378,9 +386,12 @@ export function AdvancedEnglishModule({ embedded = false }: { embedded?: boolean
           importJson={importJson}
           importMessage={importMessage}
           isImporting={isImporting}
+          setMode={(nextMode) => { setMode(nextMode); setMemoryResult(null); setReviewWordId(null); }}
         />
-        <Tabs mode={mode} setMode={setMode} />
-        {mode === "memory" && <MemoryMode word={currentMemory} rememberWord={rememberWord} openNote={openNote} />}
+        <Tabs mode={mode} setMode={(nextMode) => { setMode(nextMode); setMemoryResult(null); setReviewWordId(null); }} />
+        {(mode === "memory" || mode === "review") && <MemoryMode word={currentMemory} result={memoryResult} rememberWord={rememberWord} openNote={openNote} next={moveToNextMemoryWord} reviewMode={mode === "review"} reviewCount={reviewWords.length} />}
+        {mode === "all" && <WordList title="全部词条" words={visibleWords} review={(word) => { setMode("memory"); setReviewWordId(word.id); setMemoryResult(null); }} />}
+        {mode === "today" && <WordList title="今日 50 个词" words={dailyWords} review={(word) => { setMode("memory"); setReviewWordId(word.id); setMemoryResult(null); }} />}
         {mode === "wrong" && <WrongBook words={wrongWords} review={(word) => { setMode("memory"); setReviewWordId(word.id); }} remove={(word) => patchWord(word.id, { hidden: true })} master={(word) => patchWord(word.id, { familiarity: 5, hidden: true })} />}
         {mode === "spelling" && <Spelling word={currentSpelling} answer={spellingAnswer} setAnswer={setSpellingAnswer} status={spellingStatus} check={checkSpelling} />}
         {mode === "reading" && <Reading reading={reading} answers={answers} setAnswers={setAnswers} submitted={submitted} generateReading={generateReading} submitReading={submitReading} lookupWord={lookupWord} model={readingModel} setModel={setReadingModel} status={readingStatus} isGenerating={isGeneratingReading} />}
@@ -393,7 +404,7 @@ export function AdvancedEnglishModule({ embedded = false }: { embedded?: boolean
   );
 }
 
-function Hero({ words, todayWords, wrong, mastered, importJson, importMessage, isImporting }: { words: number; todayWords: number; wrong: number; mastered: number; importJson: (event: ChangeEvent<HTMLInputElement>) => void; importMessage: string; isImporting: boolean }) {
+function Hero({ words, todayWords, wrong, mastered, importJson, importMessage, isImporting, setMode }: { words: number; todayWords: number; wrong: number; mastered: number; importJson: (event: ChangeEvent<HTMLInputElement>) => void; importMessage: string; isImporting: boolean; setMode: (mode: Mode) => void }) {
   return (
     <header className="rounded-[28px] border border-white/[0.08] bg-[linear-gradient(135deg,rgba(0,47,167,0.92),rgba(11,15,26,0.94)_62%,rgba(0,200,150,0.12))] p-8 shadow-glow backdrop-blur-2xl">
       <p className="text-sm uppercase tracking-[0.35em] text-white/55">Wenyuan Pavilion</p>
@@ -410,9 +421,9 @@ function Hero({ words, todayWords, wrong, mastered, importJson, importMessage, i
           {importMessage ? <p className={cn("mt-3 text-sm", importMessage.startsWith("导入失败") ? "text-[#FF8A8B]" : "text-[#00C896]")}>{importMessage}</p> : null}
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4">
-          <MetricPill label="词条" value={`${words}`} />
-          <MetricPill label="今日" value={`${todayWords}`} />
-          <MetricPill label="错词" value={`${wrong}`} />
+          <MetricPill label="词条" value={`${words}`} onClick={() => setMode("all")} />
+          <MetricPill label="今日" value={`${todayWords}`} onClick={() => setMode("today")} />
+          <MetricPill label="错词" value={`${wrong}`} onClick={() => setMode("wrong")} />
           <MetricPill label="掌握" value={`${mastered}%`} />
         </div>
       </div>
@@ -421,13 +432,17 @@ function Hero({ words, todayWords, wrong, mastered, importJson, importMessage, i
 }
 
 function Tabs({ mode, setMode }: { mode: Mode; setMode: (mode: Mode) => void }) {
-  const items: Array<[Mode, string, ReactNode]> = [["memory", "记忆模式", <Brain key="i" size={16} />], ["wrong", "错词本", <Library key="i" size={16} />], ["spelling", "拼写试炼", <PenLine key="i" size={16} />], ["reading", "阅读秘境", <BookOpen key="i" size={16} />]];
+  const items: Array<[Mode, string, ReactNode]> = [["memory", "记忆模式", <Brain key="i" size={16} />], ["review", "复习模式", <Brain key="i" size={16} />], ["wrong", "错词本", <Library key="i" size={16} />], ["spelling", "拼写试炼", <PenLine key="i" size={16} />], ["reading", "阅读秘境", <BookOpen key="i" size={16} />]];
   return <nav className="flex flex-wrap gap-2">{items.map(([key, label, icon]) => <Button key={key} variant={mode === key ? "primary" : "secondary"} onClick={() => setMode(key)}>{icon}{label}</Button>)}</nav>;
 }
 
-function MemoryMode({ word, rememberWord, openNote }: { word?: StudyWord; rememberWord: () => void; openNote: (type: "模糊" | "忘记") => void }) {
-  if (!word) return <Card className="p-8"><Empty text="暂无词条，请先导入 CET-6 词库。" /></Card>;
-  return <Card className="grid gap-8 p-8 lg:grid-cols-[1fr_0.8fr]"><div><p className="text-sm text-white/55">只显示英文，先判断记忆状态</p><h2 className="mt-8 break-words text-6xl font-semibold tracking-tight text-white md:text-7xl">{word.word}</h2><div className="mt-8 flex flex-wrap gap-3"><Button onClick={rememberWord}><CheckCircle2 size={16} />记得</Button><Button variant="secondary" onClick={() => openNote("模糊")}>模糊</Button><Button variant="danger" onClick={() => openNote("忘记")}><XCircle size={16} />忘记</Button></div></div><div className="rounded-glass border border-white/[0.08] bg-white/[0.04] p-6"><p className="text-sm text-white/55">熟悉度</p><Progress className="mt-4" value={(word.familiarity / 5) * 100} /><p className="mt-4 text-sm text-white/50">模糊或忘记时会要求填写笔记，并加入错词本。</p></div></Card>;
+function MemoryMode({ word, result, rememberWord, openNote, next, reviewMode, reviewCount }: { word?: StudyWord; result: MemoryResult; rememberWord: () => void; openNote: (type: "模糊" | "忘记") => void; next: () => void; reviewMode: boolean; reviewCount: number }) {
+  if (!word) return <Card className="p-8"><Empty text={reviewMode ? "今日暂无需要复习的模糊或忘记词。" : "暂无词条，请先导入 CET-6 词库。"} /></Card>;
+  return <Card className="grid gap-8 p-8 lg:grid-cols-[1fr_0.8fr]"><div><p className="text-sm text-white/55">{reviewMode ? `复习今日模糊/忘记词，共 ${reviewCount} 个` : "只显示英文，先判断记忆状态"}</p><h2 className="mt-8 break-words text-6xl font-semibold tracking-tight text-white md:text-7xl">{word.word}</h2>{result ? <div className="mt-8 rounded-glass border border-[#00C896]/25 bg-[#00C896]/10 p-5"><p className="text-sm text-white/55">你的选择：{result.type}</p><p className="mt-3 text-2xl font-semibold text-white">{result.word.meaning}</p><p className="mt-2 text-sm text-white/60">词性：{result.word.pos || "暂无词性"}</p><Button className="mt-5" onClick={next}>下一个</Button></div> : <div className="mt-8 flex flex-wrap gap-3"><Button onClick={rememberWord}><CheckCircle2 size={16} />记得</Button><Button variant="secondary" onClick={() => openNote("模糊")}>模糊</Button><Button variant="danger" onClick={() => openNote("忘记")}><XCircle size={16} />忘记</Button></div>}</div><div className="rounded-glass border border-white/[0.08] bg-white/[0.04] p-6"><p className="text-sm text-white/55">熟悉度</p><Progress className="mt-4" value={(word.familiarity / 5) * 100} /><p className="mt-4 text-sm text-white/50">点击记得、模糊或忘记后会先显示中文意思和词性，再进入下一个。</p></div></Card>;
+}
+
+function WordList({ title, words, review }: { title: string; words: StudyWord[]; review: (word: StudyWord) => void }) {
+  return <Card className="p-6"><h2 className="text-2xl font-semibold text-white">{title}</h2><div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{words.length ? words.map((word) => <button key={word.id} onClick={() => review(word)} className="rounded-glass border border-white/[0.08] bg-white/[0.045] p-5 text-left transition hover:border-klein/45 hover:bg-white/[0.07]"><h3 className="break-words text-2xl font-semibold text-white">{word.word}</h3><p className="mt-1 text-sm text-white/55">{word.pos || "无词性"}</p><p className="mt-4 text-white/80">{word.meaning}</p></button>) : <Empty text="暂无词条。" />}</div></Card>;
 }
 
 function WrongBook({ words, review, remove, master }: { words: StudyWord[]; review: (word: StudyWord) => void; remove: (word: StudyWord) => void; master: (word: StudyWord) => void }) {
@@ -458,8 +473,9 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"><div className="w-full max-w-lg rounded-[24px] border border-white/[0.1] bg-[#0B0F1A]/95 p-6 shadow-glow"><div className="flex items-center justify-between"><h3 className="text-xl font-semibold text-white">{title}</h3><button className="rounded-full bg-white/[0.06] p-2 text-white/60 hover:text-white" onClick={onClose}><X size={18} /></button></div><div className="mt-5">{children}</div></div></div>;
 }
 
-function MetricPill({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-glass border border-white/[0.08] bg-white/[0.07] p-4"><p className="text-xs text-white/50">{label}</p><p className="mt-2 text-3xl font-semibold text-white">{value}</p></div>;
+function MetricPill({ label, value, onClick }: { label: string; value: string; onClick?: () => void }) {
+  const content = <><p className="text-xs text-white/50">{label}</p><p className="mt-2 text-3xl font-semibold text-white">{value}</p></>;
+  return onClick ? <button onClick={onClick} className="rounded-glass border border-white/[0.08] bg-white/[0.07] p-4 text-left transition hover:border-klein/50 hover:bg-klein/20">{content}</button> : <div className="rounded-glass border border-white/[0.08] bg-white/[0.07] p-4">{content}</div>;
 }
 
 function Empty({ text }: { text: string }) {

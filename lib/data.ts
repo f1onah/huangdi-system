@@ -40,6 +40,7 @@ export const defaultState: AppState = {
   ],
   readings: [],
   focusSessions: [],
+  meals: [],
   reviews: [],
   attributes: attributeSeed,
   achievements: achievementSeed,

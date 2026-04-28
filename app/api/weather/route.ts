@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-const WEATHER_ENDPOINT = "https://wttr.in/?format=j1";
-
 type WttrCurrent = {
   temp_C?: string;
   FeelsLikeC?: string;
@@ -28,9 +26,17 @@ function getTip(kind: string) {
   return "皇上出行注意天气变化。";
 }
 
-export async function GET() {
+function weatherEndpoint(requestUrl: string) {
+  const { searchParams } = new URL(requestUrl);
+  const lat = searchParams.get("lat");
+  const lon = searchParams.get("lon");
+  const query = lat && lon ? `${lat},${lon}` : searchParams.get("q") || "";
+  return query ? `https://wttr.in/${encodeURIComponent(query)}?format=j1` : "https://wttr.in/?format=j1";
+}
+
+export async function GET(request: Request) {
   try {
-    const response = await fetch(WEATHER_ENDPOINT, {
+    const response = await fetch(weatherEndpoint(request.url), {
       headers: { "User-Agent": "huangdi-system-weather" },
       next: { revalidate: 900 },
     });

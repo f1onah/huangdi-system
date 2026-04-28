@@ -38,10 +38,9 @@ type ImportResult = { total: number; added: number; updated: number; skipped: nu
 type GeneratedReading = Pick<ReadingExercise, "title" | "passage" | "wordsUsed" | "questions" | "chineseExplanation" | "passageExplanation" | "wordGlossary">;
 
 const DAILY_WORD_COUNT = 50;
-const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
-const READING_API_KEY_STORAGE = "huangdi.reading.apiKey";
 const READING_MODEL_STORAGE = "huangdi.reading.model";
 const DEFAULT_READING_MODEL = "gpt-4.1-mini";
+const READING_API_ENDPOINT = `${process.env.NEXT_PUBLIC_BASE_PATH || ""}/api/reading`;
 
 const dictionary: Record<string, { meaning: string; pos: string }> = {
   progress: { meaning: "进步；进展", pos: "n./v." },
@@ -142,13 +141,6 @@ function readLocalSetting(key: string, fallback = "") {
   return window.localStorage.getItem(key) || fallback;
 }
 
-function extractOutputText(data: unknown) {
-  if (typeof data !== "object" || data === null) return "";
-  const maybe = data as { output_text?: string; output?: Array<{ content?: Array<{ type?: string; text?: string }> }> };
-  if (typeof maybe.output_text === "string") return maybe.output_text;
-  return maybe.output?.flatMap((item) => item.content || []).find((item) => typeof item.text === "string")?.text || "";
-}
-
 function normalizeGeneratedReading(generated: GeneratedReading, sourceWords: StudyWord[]): ReadingExercise {
   const fallbackWords = sourceWords.slice(0, DAILY_WORD_COUNT).map((word) => word.word);
   const glossary = Array.isArray(generated.wordGlossary) ? generated.wordGlossary.map((item) => ({
@@ -177,7 +169,7 @@ function normalizeGeneratedReading(generated: GeneratedReading, sourceWords: Stu
   };
 }
 
-async function generateReadingWithApi(words: StudyWord[], apiKey: string, model: string): Promise<ReadingExercise> {
+async function generateReadingWithApi(words: StudyWord[], model: string): Promise<ReadingExercise> {
   const studyWords = words.slice(0, DAILY_WORD_COUNT).map((word) => ({
     word: word.word,
     meaning: word.meaning,
@@ -186,84 +178,14 @@ async function generateReadingWithApi(words: StudyWord[], apiKey: string, model:
     sentence: word.sentence || "",
   }));
 
-  const response = await fetch(OPENAI_RESPONSES_ENDPOINT, {
+  const response = await fetch(READING_API_ENDPOINT, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: model.trim() || DEFAULT_READING_MODEL,
-      input: [
-        {
-          role: "system",
-          content: "You generate CET-6 English reading practice. Return only valid JSON matching the schema. Do not reveal answers inside the passage. Explanations must be Chinese.",
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            task: "Use the given daily vocabulary to create one CET-6 reading exercise.",
-            requirements: [
-              "Passage length 220-320 English words.",
-              "Naturally include at least 12 of the provided words when possible.",
-              "Create 4 multiple-choice questions with 4 options each.",
-              "The answer must exactly equal one option string.",
-              "Provide a Chinese explanation for each question.",
-              "Provide one overall Chinese explanation and one passage structure explanation.",
-              "Provide a wordGlossary for important words in the passage, including provided vocabulary and common difficult words.",
-            ],
-            words: studyWords,
-          }),
-        },
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "cet6_reading_exercise",
-          strict: true,
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            required: ["title", "passage", "wordsUsed", "questions", "chineseExplanation", "passageExplanation", "wordGlossary"],
-            properties: {
-              title: { type: "string" },
-              passage: { type: "string" },
-              wordsUsed: { type: "array", items: { type: "string" } },
-              questions: {
-                type: "array",
-                minItems: 4,
-                maxItems: 4,
-                items: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["question", "options", "answer", "explanation"],
-                  properties: {
-                    question: { type: "string" },
-                    options: { type: "array", minItems: 4, maxItems: 4, items: { type: "string" } },
-                    answer: { type: "string" },
-                    explanation: { type: "string" },
-                  },
-                },
-              },
-              chineseExplanation: { type: "string" },
-              passageExplanation: { type: "string" },
-              wordGlossary: {
-                type: "array",
-                items: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["word", "meaning", "pos"],
-                  properties: {
-                    word: { type: "string" },
-                    meaning: { type: "string" },
-                    pos: { type: "string" },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
+      words: studyWords,
     }),
   });
 
@@ -273,9 +195,7 @@ async function generateReadingWithApi(words: StudyWord[], apiKey: string, model:
     throw new Error(message);
   }
 
-  const outputText = extractOutputText(data);
-  if (!outputText) throw new Error("API 没有返回阅读内容");
-  const generated = JSON.parse(outputText) as GeneratedReading;
+  const generated = data as GeneratedReading;
   const reading = normalizeGeneratedReading(generated, words);
   if (!reading.passage || !reading.questions.length) throw new Error("API 返回内容不完整");
   return reading;
@@ -302,7 +222,6 @@ export function AdvancedEnglishModule({ embedded = false }: { embedded?: boolean
   const [wordPopup, setWordPopup] = useState<WordPopup>(null);
   const [importMessage, setImportMessage] = useState("");
   const [isImporting, setIsImporting] = useState(false);
-  const [readingApiKey, setReadingApiKey] = useState(() => readLocalSetting(READING_API_KEY_STORAGE));
   const [readingModel, setReadingModel] = useState(() => readLocalSetting(READING_MODEL_STORAGE, DEFAULT_READING_MODEL));
   const [readingStatus, setReadingStatus] = useState("");
   const [isGeneratingReading, setIsGeneratingReading] = useState(false);
@@ -402,17 +321,11 @@ export function AdvancedEnglishModule({ embedded = false }: { embedded?: boolean
       setReadingStatus("请先导入词库，再生成阅读训练。");
       return;
     }
-    if (!readingApiKey.trim()) {
-      setReadingStatus("请先填写 API Key。Key 只会保存在你的浏览器本地。");
-      return;
-    }
-
     try {
       setIsGeneratingReading(true);
-      setReadingStatus("正在调用 API 生成阅读训练...");
-      window.localStorage.setItem(READING_API_KEY_STORAGE, readingApiKey.trim());
+      setReadingStatus("正在通过后端 API 生成阅读训练...");
       window.localStorage.setItem(READING_MODEL_STORAGE, readingModel.trim() || DEFAULT_READING_MODEL);
-      const next = await generateReadingWithApi(sourceWords, readingApiKey.trim(), readingModel);
+      const next = await generateReadingWithApi(sourceWords, readingModel);
       setReading(next);
       setAnswers({});
       setSubmitted(false);
@@ -470,7 +383,7 @@ export function AdvancedEnglishModule({ embedded = false }: { embedded?: boolean
         {mode === "memory" && <MemoryMode word={currentMemory} rememberWord={rememberWord} openNote={openNote} />}
         {mode === "wrong" && <WrongBook words={wrongWords} review={(word) => { setMode("memory"); setReviewWordId(word.id); }} remove={(word) => patchWord(word.id, { hidden: true })} master={(word) => patchWord(word.id, { familiarity: 5, hidden: true })} />}
         {mode === "spelling" && <Spelling word={currentSpelling} answer={spellingAnswer} setAnswer={setSpellingAnswer} status={spellingStatus} check={checkSpelling} />}
-        {mode === "reading" && <Reading reading={reading} answers={answers} setAnswers={setAnswers} submitted={submitted} generateReading={generateReading} submitReading={submitReading} lookupWord={lookupWord} apiKey={readingApiKey} setApiKey={setReadingApiKey} model={readingModel} setModel={setReadingModel} status={readingStatus} isGenerating={isGeneratingReading} />}
+        {mode === "reading" && <Reading reading={reading} answers={answers} setAnswers={setAnswers} submitted={submitted} generateReading={generateReading} submitReading={submitReading} lookupWord={lookupWord} model={readingModel} setModel={setReadingModel} status={readingStatus} isGenerating={isGeneratingReading} />}
       </div>
 
       {noteIntent && <Modal title={`${noteIntent.type}：写下记忆线索`} onClose={() => setNoteIntent(null)}><p className="text-sm text-white/60">{noteIntent.word.word} 会进入错词本，请保存一条复习备注。</p><Textarea className="mt-4" value={note} onChange={(event) => setNote(event.target.value)} /><Button className="mt-4" onClick={saveWrongNote}>保存笔记</Button></Modal>}
@@ -526,17 +439,16 @@ function Spelling({ word, answer, setAnswer, status, check }: { word?: StudyWord
   return <Card className="p-8"><p className="text-sm text-white/55">根据中文释义输入英文单词</p><div className="mt-5 rounded-glass border border-klein/30 bg-klein/15 p-7 text-2xl font-semibold leading-relaxed text-white md:text-3xl">{word.meaning}</div><Input className="mt-6" value={answer} onChange={(event) => setAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") check(); }} placeholder="请输入英文单词" /><div className="mt-5 flex items-center gap-3"><Button onClick={check}>提交</Button>{status ? <span className={cn("text-sm", status === "正确" ? "text-[#00C896]" : "text-[#F59E0B]")}>{status}</span> : null}</div></Card>;
 }
 
-function Reading({ reading, answers, setAnswers, submitted, generateReading, submitReading, lookupWord, apiKey, setApiKey, model, setModel, status, isGenerating }: { reading: ReadingExercise | null; answers: Record<string, string>; setAnswers: (answers: Record<string, string>) => void; submitted: boolean; generateReading: () => Promise<void>; submitReading: () => void; lookupWord: (word: string) => void; apiKey: string; setApiKey: (value: string) => void; model: string; setModel: (value: string) => void; status: string; isGenerating: boolean }) {
+function Reading({ reading, answers, setAnswers, submitted, generateReading, submitReading, lookupWord, model, setModel, status, isGenerating }: { reading: ReadingExercise | null; answers: Record<string, string>; setAnswers: (answers: Record<string, string>) => void; submitted: boolean; generateReading: () => Promise<void>; submitReading: () => void; lookupWord: (word: string) => void; model: string; setModel: (value: string) => void; status: string; isGenerating: boolean }) {
   const settings = (
-    <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_180px_auto]">
-      <Input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="OpenAI API Key" />
+    <div className="mt-5 grid gap-3 lg:grid-cols-[220px_auto]">
       <Input value={model} onChange={(event) => setModel(event.target.value)} placeholder={DEFAULT_READING_MODEL} />
       <Button onClick={generateReading} disabled={isGenerating}>{isGenerating ? "生成中..." : reading ? "换一篇" : "生成阅读训练"}</Button>
     </div>
   );
 
   if (!reading) {
-    return <Card className="p-8"><h2 className="text-2xl font-semibold text-white">阅读秘境</h2><p className="mt-3 text-white/55">点击生成时会把今日 50 个词传给 API，返回文章、题目、答案、中文解析和词义表。提交前不会显示答案。</p>{settings}{status ? <p className={cn("mt-3 text-sm", status.startsWith("生成失败") || status.includes("请先") ? "text-[#FF8A8B]" : "text-[#00C896]")}>{status}</p> : null}</Card>;
+    return <Card className="p-8"><h2 className="text-2xl font-semibold text-white">阅读秘境</h2><p className="mt-3 text-white/55">点击生成时会把今日 50 个词传给后端 API，返回文章、题目、答案、中文解析和词义表。提交前不会显示答案。</p>{settings}{status ? <p className={cn("mt-3 text-sm", status.startsWith("生成失败") || status.includes("请先") ? "text-[#FF8A8B]" : "text-[#00C896]")}>{status}</p> : null}</Card>;
   }
 
   return <Card className="p-8"><div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><h2 className="text-2xl font-semibold text-white">{reading.title}</h2><p className="mt-2 text-sm text-white/55">提交后可点击文章任意单词查看 API 返回的中文释义和词性。</p></div></div>{settings}{status ? <p className={cn("mt-3 text-sm", status.startsWith("生成失败") || status.includes("请先") ? "text-[#FF8A8B]" : "text-[#00C896]")}>{status}</p> : null}<div className="mt-6 rounded-glass border border-white/[0.08] bg-white/[0.04] p-6 text-sm leading-8 text-white/75">{reading.passage.split(/(\s+)/).map((part, index) => part.trim() ? <button key={index} className={cn("rounded px-1 transition", submitted ? "hover:bg-klein/30 hover:text-white" : "cursor-text")} onClick={() => lookupWord(part)}>{part}</button> : part)}</div><div className="mt-6 space-y-5">{reading.questions.map((question, index) => <div key={question.id} className="rounded-glass border border-white/[0.08] bg-white/[0.04] p-5"><h3 className="font-semibold text-white">{index + 1}. {question.question}</h3><div className="mt-4 grid gap-2">{question.options.map((option) => { const selected = answers[question.id] === option; const correct = submitted && option === question.answer; const wrong = submitted && selected && option !== question.answer; return <button key={option} onClick={() => !submitted && setAnswers({ ...answers, [question.id]: option })} className={cn("rounded-xl border px-4 py-3 text-left text-sm transition", selected ? "border-klein bg-klein/20 text-white" : "border-white/[0.08] bg-white/[0.04] text-white/65", correct && "border-[#00C896] bg-[#00C896]/15 text-white", wrong && "border-[#FF4D4F] bg-[#FF4D4F]/15 text-white")}>{option}</button>; })}</div>{submitted ? <div className="mt-3 space-y-2 text-sm"><p className={cn(answers[question.id] === question.answer ? "text-[#00C896]" : "text-[#FF8A8B]")}>{answers[question.id] === question.answer ? "正确" : "错误"} · 正确答案：{question.answer}</p><p className="text-white/60">解析：{question.explanation}</p></div> : null}</div>)}</div>{submitted ? <div className="mt-6 rounded-glass border border-[#00C896]/25 bg-[#00C896]/10 p-5"><h3 className="font-semibold text-white">中文解析</h3><p className="mt-2 text-sm leading-7 text-white/70">{reading.chineseExplanation || "本篇文章围绕可持续学习、反馈和自律展开，强调将努力转化为可见证据。"}</p><h3 className="mt-5 font-semibold text-white">文章讲解</h3><p className="mt-2 text-sm leading-7 text-white/70">{reading.passageExplanation || "请重点关注文章的主旨句、转折关系和关键词复现。"}</p></div> : <Button className="mt-6" onClick={submitReading}>提交</Button>}</Card>;

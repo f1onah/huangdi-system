@@ -56,6 +56,11 @@ export type ReadingExercise = {
   passage: string;
   wordsUsed: string[];
   questions: ReadingQuestion[];
+  wordGlossary?: Array<{
+    word: string;
+    meaning: string;
+    pos: string;
+  }>;
   userAnswers?: Record<string, string>;
   completed?: boolean;
   chineseExplanation?: string;

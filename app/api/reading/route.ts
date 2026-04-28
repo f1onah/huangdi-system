@@ -30,6 +30,16 @@ async function readJsonSafely(response: Response) {
   }
 }
 
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    route: "/api/reading",
+    hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
+    defaultModel: DEFAULT_READING_MODEL,
+    timeoutSeconds: OPENAI_TIMEOUT_MS / 1000,
+  });
+}
+
 export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {

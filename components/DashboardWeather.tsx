@@ -22,6 +22,16 @@ function isDashboardVisible() {
   return Array.from(document.querySelectorAll("h2")).some((node) => node.textContent?.trim() === "养心殿");
 }
 
+function getPosition() {
+  return new Promise<GeolocationPosition | null>((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(resolve, () => resolve(null), { maximumAge: 30 * 60 * 1000, timeout: 5000 });
+  });
+}
+
 export function DashboardWeather() {
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
   const [error, setError] = useState("");
@@ -32,7 +42,9 @@ export function DashboardWeather() {
 
     async function loadWeather() {
       try {
-        const response = await fetch(apiHref("/api/weather"), { cache: "no-store" });
+        const position = await getPosition();
+        const query = position ? `?lat=${position.coords.latitude}&lon=${position.coords.longitude}` : "";
+        const response = await fetch(apiHref(`/api/weather${query}`), { cache: "no-store" });
         const data = await response.json() as WeatherInfo | { error?: string };
         if (!response.ok || "error" in data) throw new Error("weather unavailable");
         if (active) {

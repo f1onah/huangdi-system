@@ -3,20 +3,22 @@
 import { useEffect, useState } from "react";
 import type { Dispatch, ReactElement, SetStateAction } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Award, BarChart3, BookOpen, Clock, Flame, LayoutDashboard, ListChecks, Moon, Plus, RotateCcw, Target, Trash2 } from "lucide-react";
+import { Award, BarChart3, BookOpen, Clock, Flame, LayoutDashboard, ListChecks, Moon, Plus, RotateCcw, Target, Trash2, Utensils } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AdvancedEnglishModule } from "@/components/AdvancedEnglishModule";
+import { DashboardWeather } from "@/components/DashboardWeather";
 import { Button, Card, Input, Progress, Select, Textarea } from "@/components/ui";
 import { achievementSeed, categories } from "@/lib/data";
 import { useAppState } from "@/lib/storage";
-import type { Achievement, AppState, Category, DailyReview, FocusMode, FocusSession, Priority, Task, TaskStatus, Toast } from "@/lib/types";
+import type { Achievement, AppState, Category, DailyReview, FocusMode, FocusSession, MealRecord, Priority, Task, TaskStatus, Toast } from "@/lib/types";
 import { addExp, categoryToAttribute, cn, percent, today, uid } from "@/lib/utils";
 
-type Tab = "dashboard" | "tasks" | "english" | "focus" | "review" | "stats" | "achievements";
+type Tab = "dashboard" | "tasks" | "kitchen" | "english" | "focus" | "review" | "stats" | "achievements";
 
 const nav: Array<{ key: Tab; href: string; label: string; sub: string; icon: LucideIcon }> = [
   { key: "dashboard", href: "/", label: "养心殿", sub: "全局态势", icon: LayoutDashboard },
   { key: "tasks", href: "/tasks", label: "勤政殿", sub: "今日事务", icon: ListChecks },
+  { key: "kitchen", href: "/kitchen", label: "御膳房", sub: "饮食记录", icon: Utensils },
   { key: "english", href: "/english", label: "文渊阁", sub: "CET-6", icon: BookOpen },
   { key: "focus", href: "/focus", label: "静修室", sub: "番茄专注", icon: Clock },
   { key: "review", href: "/review", label: "省身殿", sub: "每日复盘", icon: Moon },
@@ -37,6 +39,20 @@ const chartColors = ["#002FA7", "#00C896", "#F59E0B", "#7AA2FF", "#FF4D4F", "#94
 function routeHref(href: string) {
   const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
   return href === "/" ? `${basePath || "/"}` : `${basePath}${href}/`;
+}
+
+const BIRTHDAY = "2001-11-17";
+const LEVEL_EXP = 356;
+
+function getEmperorLevel() {
+  const now = new Date();
+  const birth = new Date(`${BIRTHDAY}T00:00:00`);
+  let age = now.getFullYear() - birth.getFullYear();
+  const birthdayThisYear = new Date(now.getFullYear(), birth.getMonth(), birth.getDate());
+  if (now < birthdayThisYear) age -= 1;
+  const lastBirthday = new Date(now.getFullYear() - (now < birthdayThisYear ? 1 : 0), birth.getMonth(), birth.getDate());
+  const exp = Math.min(LEVEL_EXP, Math.max(0, Math.floor((now.getTime() - lastBirthday.getTime()) / 86400000) + 1));
+  return { level: age, exp, nextLevelExp: LEVEL_EXP };
 }
 
 export function HuangdiApp({ initialTab = "dashboard" }: { initialTab?: Tab }) {
@@ -76,7 +92,7 @@ export function HuangdiApp({ initialTab = "dashboard" }: { initialTab?: Tab }) {
         <div className="rounded-glass border border-white/[0.08] bg-white/[0.05] p-5">
           <p className="text-xs font-semibold uppercase tracking-[0.35em] text-klein">Huangdi</p>
           <h1 className="mt-3 text-2xl font-semibold tracking-tight text-white">黄帝养成系统</h1>
-          <p className="mt-3 text-sm leading-6 text-white/60">以任务驱动行动，以反馈推动进阶。</p>
+          <p className="mt-3 text-sm leading-6 text-white/60">陛下今日辛苦了！为大黄王朝之崛起而奋斗！</p>
         </div>
         <nav className="mt-7 space-y-2">
           {nav.map((item) => (
@@ -97,6 +113,7 @@ export function HuangdiApp({ initialTab = "dashboard" }: { initialTab?: Tab }) {
         {toast ? <div className="fixed right-4 top-4 z-50 rounded-2xl border border-white/[0.1] bg-[#0B0F1A]/90 px-5 py-4 text-sm text-white shadow-glow backdrop-blur-2xl">{toast.message}</div> : null}
         {tab === "dashboard" && <Dashboard state={state} overall={overall} completedTasks={completedTasks} focusToday={focusToday} reviewDone={Boolean(reviewToday)} setTab={setTab} />}
         {tab === "tasks" && <Tasks tasks={todayTasks} updateTask={updateTask} setState={setState} notify={notify} />}
+        {tab === "kitchen" && <Kitchen meals={state.meals} setState={setState} notify={notify} />}
         {tab === "english" && <AdvancedEnglishModule embedded />}
         {tab === "focus" && <Focus state={state} patchState={patchState} notify={notify} />}
         {tab === "review" && <Review reviews={state.reviews} patchState={patchState} notify={notify} />}
@@ -113,12 +130,13 @@ function Dashboard({ state, overall, completedTasks, focusToday, reviewDone, set
   const pending = todayTasks.filter((task) => task.status !== "已完成").length;
   const mastered = percent(englishWords.filter((word) => word.familiarity >= 3).length, englishWords.length);
   const expToday = completedTasks * 20 + focusToday.length * 10 + state.readings.filter((reading) => reading.date === today() && reading.completed).length * 15;
+  const emperor = getEmperorLevel();
   const mood = overall < 35 ? "尚未进入修炼状态，建议先完成一项最小任务" : overall < 80 ? "进展稳定，可继续推进重点事务" : "今日修炼圆满，可适当收束";
   const weekly = last7().map((date, index) => ({ day: `D${index + 1}`, progress: date === today() ? overall : Math.max(20, overall - (6 - index) * 7), focus: date === today() ? focusToday.reduce((s, x) => s + x.durationMinutes, 0) : Math.max(0, index * 8) }));
   const categoryData = state.tasks.reduce<Array<{ name: Category; value: number }>>((list, task) => { const found = list.find((item) => item.name === task.category); if (found) found.value += 1; else list.push({ name: task.category, value: 1 }); return list; }, []);
   const recentAchievement = state.achievements.find((achievement) => achievement.unlocked);
 
-  return <div className="animate-[fadeIn_0.5s_ease] space-y-6"><Title icon={LayoutDashboard} title="养心殿" sub="总览今日修炼、事务进度与成长反馈" /><section className="overflow-hidden rounded-[28px] border border-white/[0.08] bg-[linear-gradient(135deg,rgba(0,47,167,0.95),rgba(11,15,26,0.92)_58%,rgba(0,200,150,0.14))] p-8 text-white shadow-glow backdrop-blur-2xl"><div className="grid gap-8 lg:grid-cols-[1.4fr_0.6fr]"><div><p className="text-sm text-white/60">{today()} · 当前状态：稳步进阶中</p><h2 className="mt-4 text-5xl font-semibold tracking-tight">黄帝 Lv. {Math.max(...state.attributes.map((a) => a.level))}</h2><p className="mt-4 max-w-2xl text-sm leading-7 text-white/72">今日修炼进度：{overall}% · 尚有 {pending} 项事务待处理。{mood}</p><Progress className="mt-8 bg-white/15 [&>div]:!bg-white" value={overall} /></div><div className="rounded-glass border border-white/[0.1] bg-white/[0.08] p-5 backdrop-blur-2xl"><p className="text-sm text-white/55">今日成长值</p><p className="mt-3 text-5xl font-semibold">+{expToday}</p><p className="mt-2 text-sm text-white/55">EXP</p></div></div></section><div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-5"><Metric title="事务完成率" value={`${percent(completedTasks, todayTasks.length)}%`} /><Metric title="词库掌握率" value={`${mastered}%`} /><Metric title="番茄轮次" value={`${focusToday.length}`} /><Metric title="专注时长" value={`${focusToday.reduce((s, x) => s + x.durationMinutes, 0)} 分`} /><Metric title="最近功勋" value={recentAchievement?.title ?? "未达成"} /></div><AttributePanel attributes={state.attributes} /><div className="grid gap-6 xl:grid-cols-2"><ChartCard title="近期修炼曲线"><AreaChart data={weekly}><defs><linearGradient id="progressFill" x1="0" x2="0" y1="0" y2="1"><stop offset="5%" stopColor="#002FA7" stopOpacity={0.55} /><stop offset="95%" stopColor="#002FA7" stopOpacity={0.03} /></linearGradient></defs><XAxis dataKey="day" /><Tooltip /><Area type="monotone" dataKey="progress" stroke="#7AA2FF" strokeWidth={3} fill="url(#progressFill)" /></AreaChart></ChartCard><ChartCard title="事务分布"><PieChart><Pie data={categoryData} dataKey="value" nameKey="name" innerRadius={64} outerRadius={92}>{categoryData.map((_, index) => <Cell key={index} fill={chartColors[index % chartColors.length]} />)}</Pie><Tooltip /></PieChart></ChartCard></div><Card className="p-6"><div className="mb-5 flex items-center justify-between"><h3 className="text-lg font-semibold text-white">今日重点事务</h3><Button variant="secondary" onClick={() => setTab("review")}>前往省身</Button></div><div className="grid gap-4 md:grid-cols-3">{todayTasks.length ? todayTasks.slice(0, 3).map((task) => <MiniTask key={task.id} task={task} />) : <Empty text="暂无事务。可新拟一项今日修炼。" />}</div></Card></div>;
+  return <div className="animate-[fadeIn_0.5s_ease] space-y-6"><Title icon={LayoutDashboard} title="养心殿" sub="总览今日修炼、事务进度与成长反馈" /><DashboardWeather /><section className="overflow-hidden rounded-[28px] border border-white/[0.08] bg-[linear-gradient(135deg,rgba(0,47,167,0.95),rgba(11,15,26,0.92)_58%,rgba(0,200,150,0.14))] p-8 text-white shadow-glow backdrop-blur-2xl"><div className="grid gap-8 lg:grid-cols-[1.4fr_0.6fr]"><div><p className="text-sm text-white/60">{today()} · 当前状态：稳步进阶中</p><h2 className="mt-4 text-5xl font-semibold tracking-tight">黄帝 Lv. {emperor.level}</h2><p className="mt-4 max-w-2xl text-sm leading-7 text-white/72">今日修炼进度：{overall}% · 尚有 {pending} 项事务待处理。{mood}</p><Progress className="mt-8 bg-white/15 [&>div]:!bg-white" value={overall} /></div><div className="rounded-glass border border-white/[0.1] bg-white/[0.08] p-5 backdrop-blur-2xl"><p className="text-sm text-white/55">本级经验</p><p className="mt-3 text-5xl font-semibold">{emperor.exp}<span className="text-lg text-white/45">/{emperor.nextLevelExp}</span></p><p className="mt-2 text-sm text-white/55">每过一天 +1 EXP</p><Progress className="mt-4 bg-white/15 [&>div]:!bg-white" value={(emperor.exp / emperor.nextLevelExp) * 100} /></div></div></section><div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-5"><Metric title="事务完成率" value={`${percent(completedTasks, todayTasks.length)}%`} /><Metric title="词库掌握率" value={`${mastered}%`} onClick={() => setTab("english")} /><Metric title="番茄轮次" value={`${focusToday.length}`} onClick={() => setTab("focus")} /><Metric title="专注时长" value={`${focusToday.reduce((s, x) => s + x.durationMinutes, 0)} 分`} onClick={() => setTab("focus")} /><Metric title="最近功勋" value={recentAchievement?.title ?? "未达成"} onClick={() => setTab("achievements")} /></div><AttributePanel attributes={state.attributes} /><div className="grid gap-6 xl:grid-cols-2"><ChartCard title="近期修炼曲线"><AreaChart data={weekly}><defs><linearGradient id="progressFill" x1="0" x2="0" y1="0" y2="1"><stop offset="5%" stopColor="#002FA7" stopOpacity={0.55} /><stop offset="95%" stopColor="#002FA7" stopOpacity={0.03} /></linearGradient></defs><XAxis dataKey="day" /><Tooltip /><Area type="monotone" dataKey="progress" stroke="#7AA2FF" strokeWidth={3} fill="url(#progressFill)" /></AreaChart></ChartCard><ChartCard title="事务分布"><PieChart><Pie data={categoryData} dataKey="value" nameKey="name" innerRadius={64} outerRadius={92}>{categoryData.map((_, index) => <Cell key={index} fill={chartColors[index % chartColors.length]} />)}</Pie><Tooltip /></PieChart></ChartCard></div><Card className="p-6"><div className="mb-5 flex items-center justify-between"><h3 className="text-lg font-semibold text-white">今日重点事务</h3><Button variant="secondary" onClick={() => setTab("review")}>前往省身</Button></div><div className="grid gap-4 md:grid-cols-3">{todayTasks.length ? todayTasks.slice(0, 3).map((task) => <MiniTask key={task.id} task={task} />) : <Empty text="暂无事务。可新拟一项今日修炼。" />}</div></Card></div>;
 }
 
 function Tasks({ tasks, updateTask, setState, notify }: { tasks: Task[]; updateTask: (id: string, patch: Partial<Task>) => void; setState: Dispatch<SetStateAction<AppState>>; notify: (message: string) => void }) {
@@ -127,7 +145,28 @@ function Tasks({ tasks, updateTask, setState, notify }: { tasks: Task[]; updateT
   const filtered = tasks.filter((task) => category === "全部" || task.category === category).sort((a, b) => priorityList.indexOf(a.priority) - priorityList.indexOf(b.priority));
   function addTask() { if (!draft.title.trim()) return; const now = new Date().toISOString(); const task: Task = { id: uid("task"), title: draft.title.trim(), category: draft.category, priority: draft.priority, status: "未开始", estimatedMinutes: draft.estimatedMinutes, actualMinutes: 0, progress: 0, note: "", date: today(), createdAt: now, updatedAt: now }; setState((current) => ({ ...current, tasks: [task, ...current.tasks] })); setDraft({ title: "", category: "学习", priority: "中", estimatedMinutes: 45 }); notify("已新拟一项事务"); }
   function remove(id: string) { setState((current) => ({ ...current, tasks: current.tasks.filter((task) => task.id !== id) })); notify("事务已作废"); }
-  return <div className="space-y-6"><Title icon={Target} title="勤政殿" sub="处理今日事务，将行动转化为可见进度" /><Card className="p-5"><div className="grid gap-4 lg:grid-cols-[1fr_150px_120px_130px_150px_auto]"><Input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="事务名称" /><Select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value as Category })}>{categories.map((item) => <option key={item}>{item}</option>)}</Select><Select value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value as Priority })}>{priorityList.map((item) => <option key={item}>{item}</option>)}</Select><Input type="number" value={draft.estimatedMinutes} onChange={(e) => setDraft({ ...draft, estimatedMinutes: Number(e.target.value) })} /><Select value={category} onChange={(e) => setCategory(e.target.value as Category | "全部")}><option>全部</option>{categories.map((item) => <option key={item}>{item}</option>)}</Select><Button onClick={addTask}><Plus size={16} />新拟事务</Button></div></Card><div className="grid gap-6 xl:grid-cols-4">{statusList.map((status) => <Card key={status} className="min-h-80 p-5"><div className="mb-5 flex items-center justify-between"><h3 className="font-semibold text-white">{statusCopy[status]}</h3><span className="rounded-full border border-white/[0.08] bg-white/[0.06] px-3 py-1 text-xs text-white/60">{filtered.filter((task) => task.status === status).length}</span></div><div className="space-y-4">{filtered.filter((task) => task.status === status).map((task) => <TaskCard key={task.id} task={task} updateTask={updateTask} remove={remove} />)}{filtered.filter((task) => task.status === status).length === 0 ? <Empty text="暂无事务" /> : null}</div></Card>)}</div></div>;
+  return <div className="space-y-6"><Title icon={Target} title="勤政殿" sub="今日政务正在推进….多批一本奏折也是在稳定江山呢～" /><Card className="p-5"><div className="grid gap-4 lg:grid-cols-[1fr_150px_120px_130px_150px_auto]"><Input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="事务名称" /><Select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value as Category })}>{categories.map((item) => <option key={item}>{item}</option>)}</Select><Select value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value as Priority })}>{priorityList.map((item) => <option key={item}>{item}</option>)}</Select><Input type="number" value={draft.estimatedMinutes} onChange={(e) => setDraft({ ...draft, estimatedMinutes: Number(e.target.value) })} /><Select value={category} onChange={(e) => setCategory(e.target.value as Category | "全部")}><option>全部</option>{categories.map((item) => <option key={item}>{item}</option>)}</Select><Button onClick={addTask}><Plus size={16} />新拟事务</Button></div></Card><div className="grid gap-6 xl:grid-cols-4">{statusList.map((status) => <Card key={status} className="min-h-80 p-5"><div className="mb-5 flex items-center justify-between"><h3 className="font-semibold text-white">{statusCopy[status]}</h3><span className="rounded-full border border-white/[0.08] bg-white/[0.06] px-3 py-1 text-xs text-white/60">{filtered.filter((task) => task.status === status).length}</span></div><div className="space-y-4">{filtered.filter((task) => task.status === status).map((task) => <TaskCard key={task.id} task={task} updateTask={updateTask} remove={remove} />)}{filtered.filter((task) => task.status === status).length === 0 ? <Empty text="暂无事务" /> : null}</div></Card>)}</div></div>;
+}
+
+function Kitchen({ meals, setState, notify }: { meals: MealRecord[]; setState: Dispatch<SetStateAction<AppState>>; notify: (message: string) => void }) {
+  const [draft, setDraft] = useState({ food: "", drink: "", note: "" });
+  const todayMeals = meals.filter((meal) => meal.date === today());
+
+  function saveMeal() {
+    if (!draft.food.trim() && !draft.drink.trim()) return;
+    const now = new Date().toISOString();
+    const meal: MealRecord = { id: uid("meal"), date: today(), food: draft.food.trim(), drink: draft.drink.trim(), note: draft.note.trim(), createdAt: now, updatedAt: now };
+    setState((current) => ({ ...current, meals: [meal, ...current.meals], attributes: addExp(current.attributes, "life", 1) }));
+    setDraft({ food: "", drink: "", note: "" });
+    notify("御膳已记录");
+  }
+
+  function removeMeal(id: string) {
+    setState((current) => ({ ...current, meals: current.meals.filter((meal) => meal.id !== id) }));
+    notify("御膳记录已删除");
+  }
+
+  return <div className="space-y-6"><Title icon={Utensils} title="御膳房" sub="记录今日吃了什么、喝了什么，照顾好陛下的生活力" /><Card className="p-6"><div className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_auto]"><Input value={draft.food} onChange={(event) => setDraft({ ...draft, food: event.target.value })} placeholder="今日吃了什么" /><Input value={draft.drink} onChange={(event) => setDraft({ ...draft, drink: event.target.value })} placeholder="今日喝了什么" /><Input value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} placeholder="备注" /><Button onClick={saveMeal}><Plus size={16} />记录御膳</Button></div></Card><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{todayMeals.length ? todayMeals.map((meal) => <Card key={meal.id} className="p-5"><div className="flex items-start justify-between gap-4"><div><p className="text-sm text-white/45">{meal.date}</p><h3 className="mt-2 text-xl font-semibold text-white">{meal.food || "未记食物"}</h3><p className="mt-2 text-sm text-white/65">饮品：{meal.drink || "未记录"}</p>{meal.note ? <p className="mt-3 text-sm text-white/55">备注：{meal.note}</p> : null}</div><button className="rounded-xl bg-white/[0.06] p-2 text-white/45 hover:text-white" onClick={() => removeMeal(meal.id)}><Trash2 size={16} /></button></div></Card>) : <Empty text="今日尚未记录御膳。" />}</div></div>;
 }
 
 function TaskCard({ task, updateTask, remove }: { task: Task; updateTask: (id: string, patch: Partial<Task>) => void; remove: (id: string) => void }) {
@@ -171,14 +210,17 @@ function Stats({ state }: { state: AppState }) {
 }
 
 function Achievements({ achievements }: { achievements: Achievement[] }) {
-  return <div className="space-y-6"><Title icon={Award} title="功勋簿" sub="功勋记录，见证每一次进阶" /><div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">{achievements.map((achievement) => <Card key={achievement.id} className={cn("p-6", achievement.unlocked && "border-klein/40 bg-klein/10")}><div className="flex items-start gap-4"><div className={cn("rounded-2xl p-3", achievement.unlocked ? "bg-klein text-white shadow-[0_0_28px_rgba(0,47,167,0.45)]" : "bg-white/[0.06] text-white/35")}><Award size={22} /></div><div><h3 className="font-semibold text-white">{achievement.title}</h3><p className="mt-2 text-sm leading-6 text-white/55">{achievement.description}</p><p className={cn("mt-4 text-xs", achievement.unlocked ? "text-[#00C896]" : "text-white/40")}>{achievement.unlocked ? `已获得「${achievement.title}」` : "未达成"}</p></div></div></Card>)}</div></div>;
+  return <div className="space-y-6"><Title icon={Award} title="功勋簿" sub="陛下您实在太棒了！" /><div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">{achievements.map((achievement) => <Card key={achievement.id} className={cn("p-6", achievement.unlocked && "border-klein/40 bg-klein/10")}><div className="flex items-start gap-4"><div className={cn("rounded-2xl p-3", achievement.unlocked ? "bg-klein text-white shadow-[0_0_28px_rgba(0,47,167,0.45)]" : "bg-white/[0.06] text-white/35")}><Award size={22} /></div><div><h3 className="font-semibold text-white">{achievement.title}</h3><p className="mt-2 text-sm leading-6 text-white/55">{achievement.description}</p><p className={cn("mt-4 text-xs", achievement.unlocked ? "text-[#00C896]" : "text-white/40")}>{achievement.unlocked ? `已获得「${achievement.title}」` : "未达成"}</p></div></div></Card>)}</div></div>;
 }
 
 function Tabs<T extends string>({ current, setCurrent, items }: { current: T; setCurrent: (value: T) => void; items: Array<[T, string]> }) { return <div className="flex flex-wrap gap-2">{items.map(([key, label]) => <Button key={key} variant={current === key ? "primary" : "secondary"} onClick={() => setCurrent(key)}>{label}</Button>)}</div>; }
 function MiniTask({ task }: { task: Task }) { return <div className="rounded-glass border border-white/[0.08] bg-white/[0.045] p-4"><div className="flex justify-between gap-3"><b className="text-white">{task.title}</b><span className="text-sm text-[#00C896]">{task.progress}%</span></div><p className="mt-2 text-xs text-white/50">{task.category} · {task.priority} · {statusCopy[task.status]}</p><Progress className="mt-4" value={task.progress} /></div>; }
 function AttributePanel({ attributes }: { attributes: AppState["attributes"] }) { return <Card className="p-6"><div className="mb-5 flex items-center gap-2"><Flame size={20} className="text-klein" /><h3 className="text-lg font-semibold text-white">六维属性</h3></div><div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">{attributes.map((attribute) => <div key={attribute.key}><div className="mb-2 flex justify-between text-sm"><b className="text-white">{attribute.name}</b><span className="text-white/50">Lv.{attribute.level} · 差 {attribute.nextLevelExp - attribute.exp} EXP</span></div><Progress value={(attribute.exp / attribute.nextLevelExp) * 100} /><p className="mt-2 text-xs text-white/35">当前 {attribute.exp}/{attribute.nextLevelExp} EXP</p></div>)}</div></Card>; }
 function ChartCard({ title, children }: { title: string; children: ReactElement }) { return <Card className="p-6"><h3 className="mb-5 text-lg font-semibold text-white">{title}</h3><div className="h-72"><ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer></div></Card>; }
-function Metric({ title, value, dark = false }: { title: string; value: string; dark?: boolean }) { return <Card className={cn("p-5", dark && "border-white/[0.12] bg-white/[0.08] text-white")}><p className={cn("text-sm", dark ? "text-white/65" : "text-white/55")}>{title}</p><p className="mt-3 text-3xl font-semibold tracking-tight text-white">{value}</p></Card>; }
+function Metric({ title, value, dark = false, onClick }: { title: string; value: string; dark?: boolean; onClick?: () => void }) {
+  const content = <><p className={cn("text-sm", dark ? "text-white/65" : "text-white/55")}>{title}</p><p className="mt-3 text-3xl font-semibold tracking-tight text-white">{value}</p></>;
+  return onClick ? <button onClick={onClick} className="rounded-glass border border-white/[0.08] bg-white/[0.05] p-5 text-left shadow-[0_24px_80px_rgba(0,0,0,0.28)] backdrop-blur-2xl transition-all duration-300 hover:-translate-y-1 hover:border-klein/45 hover:shadow-glow">{content}</button> : <Card className={cn("p-5", dark && "border-white/[0.12] bg-white/[0.08] text-white")}>{content}</Card>;
+}
 function Title({ icon: Icon, title, sub }: { icon: LucideIcon; title: string; sub?: string }) { return <div className="flex flex-col gap-2"><div className="flex items-center gap-3"><span className="rounded-2xl border border-klein/35 bg-klein/20 p-3 text-white shadow-[0_0_24px_rgba(0,47,167,0.28)]"><Icon size={21} /></span><div><h2 className="text-3xl font-semibold tracking-tight text-white">{title}</h2>{sub ? <p className="mt-1 text-sm text-white/55">{sub}</p> : null}</div></div></div>; }
 function Empty({ text }: { text: string }) { return <div className="rounded-glass border border-dashed border-white/[0.12] bg-white/[0.035] p-8 text-center text-sm text-white/45">{text}</div>; }
 function last7() { return Array.from({ length: 7 }, (_, index) => { const d = new Date(); d.setDate(d.getDate() - (6 - index)); return d.toISOString().slice(0, 10); }); }

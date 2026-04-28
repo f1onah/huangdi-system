@@ -18,10 +18,6 @@ function apiHref(path: string) {
   return `${basePath}${path}`;
 }
 
-function isDashboardVisible() {
-  return Array.from(document.querySelectorAll("h2")).some((node) => node.textContent?.trim() === "养心殿");
-}
-
 function getPosition() {
   return new Promise<GeolocationPosition | null>((resolve) => {
     if (!navigator.geolocation) {
@@ -35,7 +31,6 @@ function getPosition() {
 export function DashboardWeather() {
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
   const [error, setError] = useState("");
-  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -60,23 +55,13 @@ export function DashboardWeather() {
     return () => { active = false; };
   }, []);
 
-  useEffect(() => {
-    const update = () => setVisible(isDashboardVisible());
-    update();
-    const observer = new MutationObserver(update);
-    observer.observe(document.body, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, []);
-
-  if (!visible) return null;
-
   const Icon = weather?.kind === "sunny" ? Sun : weather?.kind === "rain" ? CloudRain : Cloud;
   const meta = weather ? `${weather.city} · ${weather.condition}` : error || "实时更新中";
   const temp = weather?.tempC ? `${weather.tempC}°C` : "--";
   const tip = weather?.tip || (error ? "今日天气暂不可用。" : "正在观天象...");
 
   return (
-    <aside className="fixed bottom-5 right-5 z-40 w-[min(340px,calc(100vw-2rem))] rounded-[24px] border border-white/[0.1] bg-[#0B0F1A]/86 p-5 text-white shadow-glow backdrop-blur-2xl">
+    <section className="rounded-[24px] border border-white/[0.1] bg-[#0B0F1A]/72 p-5 text-white shadow-glow backdrop-blur-2xl">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm text-white/55">今日天气</p>
@@ -90,6 +75,6 @@ export function DashboardWeather() {
       </div>
       <p className="mt-4 text-sm leading-6 text-white/72">{tip}</p>
       <p className="mt-2 text-xs text-white/45">{weather?.humidity ? `湿度 ${weather.humidity}% · ` : ""}每日实时更新</p>
-    </aside>
+    </section>
   );
 }

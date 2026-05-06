@@ -172,3 +172,28 @@ section.rounded-2xl:hover {
 .recharts-area-curve {
   filter: drop-shadow(0 0 12px rgba(212,175,55,0.28));
 }
+
+/* Black-gold fallback for older generated utility classes that may still be in component bundles. */
+[class*="rgba(0,47,167"],
+[class*="rgba(0, 47, 167"] {
+  border-color: rgba(212,175,55,0.26) !important;
+  box-shadow: 0 0 0 1px rgba(212,175,55,0.16), 0 24px 80px rgba(212,175,55,0.18) !important;
+}
+
+[class*="bg-\\[linear-gradient"][class*="rgba(0,47,167"] {
+  background: linear-gradient(135deg, rgba(7,6,6,0.96), rgba(63,47,17,0.92) 58%, rgba(212,175,55,0.22)) !important;
+}
+
+[style*="#002FA7"] {
+  background: conic-gradient(#d4af37 100%, rgba(255,255,255,0.08) 0deg) !important;
+}
+
+.recharts-area-curve {
+  stroke: #ffe08a !important;
+}
+
+.recharts-area-area,
+.recharts-bar-rectangle path,
+.recharts-sector path {
+  fill: #d4af37 !important;
+}

@@ -61,7 +61,7 @@ export function DashboardWeather() {
   const tip = weather?.tip || (error ? "今日天气暂不可用。" : "正在观天象...");
 
   return (
-    <section className="rounded-[24px] border border-white/[0.1] bg-[#070606]/72 p-5 text-white shadow-glow backdrop-blur-2xl">
+    <section className="rounded-[24px] border border-white/[0.1] bg-[#0B0F1A]/72 p-5 text-white shadow-glow backdrop-blur-2xl">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm text-white/55">今日天气</p>

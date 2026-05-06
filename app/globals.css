@@ -172,3 +172,37 @@ section.rounded-2xl:hover {
 .recharts-area-curve {
   filter: drop-shadow(0 0 12px rgba(0,47,167,0.32));
 }
+
+main > div > section[class*="overflow-hidden"][class*="rgba(0,47,167"] > div > div:first-child {
+  position: relative;
+  padding-top: 7rem;
+}
+
+main > div > section[class*="overflow-hidden"][class*="rgba(0,47,167"] > div > div:first-child::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 6rem;
+  height: 6rem;
+  content: "";
+  background-image: url("/images/avatar.jpg");
+  background-position: center 26%;
+  background-size: cover;
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 999px;
+  box-shadow: 0 0 34px rgba(0,47,167,0.48);
+  outline: 4px solid rgba(255,255,255,0.1);
+}
+
+@media (min-width: 640px) {
+  main > div > section[class*="overflow-hidden"][class*="rgba(0,47,167"] > div > div:first-child {
+    min-height: 8rem;
+    padding-top: 0;
+    padding-left: 9rem;
+  }
+
+  main > div > section[class*="overflow-hidden"][class*="rgba(0,47,167"] > div > div:first-child::before {
+    width: 8rem;
+    height: 8rem;
+  }
+}
